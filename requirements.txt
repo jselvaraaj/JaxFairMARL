@@ -1,0 +1,35 @@
+# python=3.10
+
+# formatting
+# black
+# ruff
+
+# logging
+wandb
+
+# Visualization
+seaborn
+# plotly
+# dash
+# dash-bootstrap-components
+matplotlib
+
+
+# JAX
+    # Types
+    beartype
+    jaxtyping
+    # JAX Neural networks
+    flax
+    jraph
+    distrax
+    optax
+    orbax
+
+    #NODE
+    # diffrax
+    # The following has to be done to use diffrax in colab gpu
+    # !pip uninstall -y inflect
+    # !pip install -r requirements.txt
+    # !pip install -r requirements_jax_cuda.txt
+    # !pip install --force-reinstall "jax[cuda12]>=0.4.23,<0.5.0" "jaxlib[cuda12]>=0.4.23,<0.5.0" "orbax-checkpoint==0.4.6"
