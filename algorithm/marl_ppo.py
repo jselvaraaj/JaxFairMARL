@@ -79,7 +79,10 @@ class TransitionWithActionField(NamedTuple):
 def batchify(x: dict, agent_list, num_actors):
     x = jnp.stack([x[a] for a in agent_list])
     return x.reshape(
-        (num_actors, -1)  # this will concatenate the obs from all previous rolling memory
+        (
+            num_actors,
+            -1,
+        )  # this will concatenate the obs from all previous rolling memory
         # i don't want that but i am not using obs any ways so deferring to fix it.
     )  # [agent_0_env_1, agent_0_env_2 ....agent_n_env_(m-1), agent_n_env_m]
 
@@ -101,9 +104,17 @@ def batchify_graph(graph: MultiAgentGraph, agent_label_index: dict[str, int]):
     agent_indices_for_all_agents = []
     n_edge_for_all_agents = []
     for agent_label in graph:
-        equivariant_nodes, non_equivariant_nodes, edges, receivers, senders, _, n_node, n_edge, agent_indices = graph[
-            agent_label
-        ]
+        (
+            equivariant_nodes,
+            non_equivariant_nodes,
+            edges,
+            receivers,
+            senders,
+            _,
+            n_node,
+            n_edge,
+            agent_indices,
+        ) = graph[agent_label]
         num_env, *_ = equivariant_nodes.shape
         receivers = receivers.astype(jnp.int32)
         senders = senders.astype(jnp.int32)
@@ -146,19 +157,23 @@ def make_env_from_config(config: MAPPOConfig):
 
 
 def get_actor_init_input(config: MAPPOConfig, env):
-    num_env = config.training_config.num_envs
+    # TODO: pull this from env
     num_coordinate = 2
     node_num_equivariant_feature = 2
+    node_non_equivariant_feature_dim = 2
+
+    num_env = config.training_config.num_envs
     if config.env_config.env_kwargs.add_target_goal_to_nodes:
         node_num_equivariant_feature += 1
     communication_type = config.env_config.env_kwargs.agent_communication_type
-    agent_previous_obs_stack_size = config.env_config.env_kwargs.agent_previous_obs_stack_size
-    node_non_equivariant_feature_dim = 1
+    agent_previous_obs_stack_size = (
+        config.env_config.env_kwargs.agent_previous_obs_stack_size
+    )
     if communication_type == CommunicationType.HIDDEN_STATE.value:
         node_non_equivariant_feature_dim += config.network_config.gru_hidden_dim
     elif (
-            communication_type == CommunicationType.PAST_ACTION.value
-            or communication_type == CommunicationType.CURRENT_ACTION.value
+        communication_type == CommunicationType.PAST_ACTION.value
+        or communication_type == CommunicationType.CURRENT_ACTION.value
     ):
         node_non_equivariant_feature_dim += 1
     equivariant_nodes = jnp.zeros(
@@ -167,7 +182,7 @@ def get_actor_init_input(config: MAPPOConfig, env):
             env.num_entities,
             agent_previous_obs_stack_size,
             node_num_equivariant_feature,
-            num_coordinate
+            num_coordinate,
         )
     )
     non_equivariant_nodes = jnp.zeros(
@@ -233,7 +248,8 @@ def get_actor_init_input(config: MAPPOConfig, env):
             (
                 1,
                 num_actors,
-                env.observation_space_for_agent(env.agent_labels[0]).shape[0] * agent_previous_obs_stack_size,
+                env.observation_space_for_agent(env.agent_labels[0]).shape[0]
+                * agent_previous_obs_stack_size,
             )
         ),
         graph_init,
@@ -279,8 +295,8 @@ def get_init_communication_message(config: MAPPOConfig, env, ac_init_h_state):
     if communication_type == CommunicationType.HIDDEN_STATE.value:
         initial_communication_message = ac_init_h_state
     elif (
-            communication_type == CommunicationType.PAST_ACTION.value
-            or communication_type == CommunicationType.CURRENT_ACTION.value
+        communication_type == CommunicationType.PAST_ACTION.value
+        or communication_type == CommunicationType.CURRENT_ACTION.value
     ):
         initial_communication_message = jnp.full(
             (config.derived_values.num_actors, 1), -1
@@ -367,9 +383,9 @@ class UpdateEpochState(NamedTuple):
 
 @jaxtyped(typechecker=beartype)
 def _env_step(
-        env_step_static_variables: StaticVariables,
-        runner_state: EnvStepRunnerState,
-        unused,
+    env_step_static_variables: StaticVariables,
+    runner_state: EnvStepRunnerState,
+    unused,
 ):
     (
         env,
@@ -451,7 +467,7 @@ def _env_step(
 
         @partial(jax.vmap, in_axes=(0, None, None, 0), out_axes=1)
         def get_action_field_for_single_lin_space(
-                _rng, actor_params: dict, actor_h_state, ac_lin_in
+            _rng, actor_params: dict, actor_h_state, ac_lin_in
         ):
             ac_lin_in = jax.tree.map(lambda x: x[None], ac_lin_in)
 
@@ -532,8 +548,8 @@ def _env_step(
     if communication_type == CommunicationType.HIDDEN_STATE.value:
         last_communication_message = ac_h_state
     elif (
-            communication_type == CommunicationType.PAST_ACTION.value
-            or communication_type == CommunicationType.CURRENT_ACTION.value
+        communication_type == CommunicationType.PAST_ACTION.value
+        or communication_type == CommunicationType.CURRENT_ACTION.value
     ):
         last_communication_message = action.squeeze()[..., None]
 
@@ -580,9 +596,9 @@ def _env_step(
 # UPDATE NETWORK
 @jaxtyped(typechecker=beartype)
 def _update_epoch(
-        update_epoch_static_variables: StaticVariables,
-        update_state: UpdateEpochState,
-        unused,
+    update_epoch_static_variables: StaticVariables,
+    update_state: UpdateEpochState,
+    unused,
 ):
     _, config, actor_network, critic_network, _, _, _ = update_epoch_static_variables
     ppo_config = config.training_config.ppo_config
@@ -615,12 +631,12 @@ def _update_epoch(
             gae = (gae - gae.mean()) / (gae.std() + 1e-8)
             loss_actor1 = ratio * gae
             loss_actor2 = (
-                    jnp.clip(
-                        ratio,
-                        1.0 - ppo_config.clip_eps,
-                        1.0 + ppo_config.clip_eps,
-                    )
-                    * gae
+                jnp.clip(
+                    ratio,
+                    1.0 - ppo_config.clip_eps,
+                    1.0 + ppo_config.clip_eps,
+                )
+                * gae
             )
             loss_actor = -jnp.minimum(loss_actor1, loss_actor2)
             loss_actor = loss_actor.mean()
@@ -749,9 +765,9 @@ def _update_epoch(
 # TRAIN LOOP
 @jaxtyped(typechecker=beartype)
 def ppo_single_update(
-        static_variables: StaticVariables,
-        update_runner_state: UpdateStepRunnerState,
-        unused,
+    static_variables: StaticVariables,
+    update_runner_state: UpdateStepRunnerState,
+    unused,
 ):
     (
         env,
@@ -825,14 +841,14 @@ def ppo_single_update(
                 transition.reward,
             )
             delta = (
-                    reward + config.training_config.gamma * next_value * (1 - done) - value
+                reward + config.training_config.gamma * next_value * (1 - done) - value
             )
             gae = (
-                    delta
-                    + config.training_config.gamma
-                    * ppo_config.gae_lambda
-                    * (1 - done)
-                    * gae
+                delta
+                + config.training_config.gamma
+                * ppo_config.gae_lambda
+                * (1 - done)
+                * gae
             )
             return (gae, value), gae
 
@@ -875,9 +891,9 @@ def ppo_single_update(
         )
         update_steps = metric["update_steps"]
         if (
-                config.wandb_config.save_model
-                and update_steps % config.wandb_config.checkpoint_model_every_update_steps
-                == 0
+            config.wandb_config.save_model
+            and update_steps % config.wandb_config.checkpoint_model_every_update_steps
+            == 0
         ):
             dict_config = config_to_dict(config)
 
@@ -904,8 +920,8 @@ def ppo_single_update(
             {
                 "returns": metric["returned_episode_returns"][-1, :].mean(),
                 "env_step": update_steps
-                            * config.training_config.num_envs
-                            * ppo_config.num_steps_per_update,
+                * config.training_config.num_envs
+                * ppo_config.num_steps_per_update,
                 **metric["loss"],
             }
         )
@@ -940,9 +956,9 @@ def make_train(config: MAPPOConfig):
     def linear_schedule(count):
         nonlocal config, ppo_config
         frac = (
-                1.0
-                - (count // (ppo_config.num_minibatches_actors * ppo_config.update_epochs))
-                / config.derived_values.num_updates
+            1.0
+            - (count // (ppo_config.num_minibatches_actors * ppo_config.update_epochs))
+            / config.derived_values.num_updates
         )
         return config.training_config.lr * frac
 
@@ -1066,7 +1082,7 @@ def make_train(config: MAPPOConfig):
 def main():
     config: MAPPOConfig = MAPPOConfig.create()
     assert (
-            config.training_config.num_envs > 1
+        config.training_config.num_envs > 1
     ), "Number of environments must be greater than 1 for training"
     dict_config = config_to_dict(config)
     wandb.init(

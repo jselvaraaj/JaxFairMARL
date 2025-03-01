@@ -31,6 +31,7 @@ EntityIndex = int
 # Used in JAX Arrays
 EntityIndexAxis = "entity_index"
 AgentIndexAxis = "agent_index"
+LandmarkIndexAxis = "landmark_index"
 CoordinateAxisIndexAxis = "position_index"
 
 
