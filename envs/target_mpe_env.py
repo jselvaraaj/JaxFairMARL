@@ -8,6 +8,7 @@ import optax
 from jaxtyping import Array, Bool, Float, Int
 
 from config.mappo_config import CommunicationType
+from envs.bottleneck_assignment_optimization import lexicographic_bottleneck_assignment
 
 from .default_env_config import (
     AGENT_COLOR,
@@ -107,7 +108,7 @@ class TargetMPEEnvironment(MultiAgentEnv):
         distance_to_goal_reward_coefficient=5,
         add_target_goal_to_nodes=True,
         heterogeneous_agents=False,
-        assignment_strategy=AssignmentStrategy.OPTIMAL_DISTANCE,
+        assignment_strategy=AssignmentStrategy.MIN_MAX_FAIR,
     ):
         super().__init__(
             num_agents=num_agents,
@@ -271,8 +272,8 @@ class TargetMPEEnvironment(MultiAgentEnv):
     ) -> tuple[MultiAgentObservation, MultiAgentGraph, MPEState]:
         """Initialise with random positions"""
 
-        key_assignment, key_landmark, key_initial_coord, key_visibility_radius = (
-            jax.random.split(key, 4)
+        key_landmark, key_initial_coord, key_visibility_radius = jax.random.split(
+            key, 3
         )
 
         r = jax.random.choice(key_initial_coord, self.entities_initial_coord_radius)
@@ -344,7 +345,7 @@ class TargetMPEEnvironment(MultiAgentEnv):
             entity_positions = initial_entity_position
 
         agent_indices_to_landmark_index = jnp.full(
-            self.num_agents, jnp.inf, dtype=jnp.int32
+            self.num_agents, jnp.nan, dtype=jnp.int32
         )
 
         state = MPEState(
@@ -776,14 +777,23 @@ class TargetMPEEnvironment(MultiAgentEnv):
             agent_idx, landmark_idx = optax.assignment.hungarian_algorithm(costs)
 
             landmark_idx = landmark_idx + self.num_agents
-
-            agent_indices_to_landmark_index = jnp.arange(self.num_agents)
+            agent_indices_to_landmark_index = jnp.full(
+                (self.num_agents,), jnp.nan, dtype=jnp.int32
+            )
             agent_indices_to_landmark_index = agent_indices_to_landmark_index.at[
                 agent_idx
             ].set(landmark_idx)
-        # TODO: this is not correct.
         elif self.assignment_strategy == AssignmentStrategy.MIN_MAX_FAIR:
-            agent_indices_to_landmark_index = jnp.arange(self.num_agents)
+            costs = compute_distance(self.agent_indices, self.landmark_indices)
+            agent_idx, landmark_idx = lexicographic_bottleneck_assignment(costs)
+
+            landmark_idx = landmark_idx + self.num_agents
+            agent_indices_to_landmark_index = jnp.full(
+                (self.num_agents,), jnp.nan, dtype=jnp.int32
+            )
+            agent_indices_to_landmark_index = agent_indices_to_landmark_index.at[
+                agent_idx
+            ].set(landmark_idx)
 
         dist_matrix = compute_distance(self.agent_indices, self.landmark_indices)
 

@@ -16,8 +16,8 @@ def solve_bottleneck_assignment(
     high = max_search_values.shape[0] - 1
     # Initialize best_assignment with the same shape as what will be returned
     m, n = cost_matrix.shape
-    init_rows = jnp.full((m,), jnp.nan, dtype=jnp.int32)
-    init_cols = jnp.full((n,), jnp.nan, dtype=jnp.int32)
+    init_rows = jnp.full((m,), jnp.nan, dtype=jnp.float32)
+    init_cols = jnp.full((n,), jnp.nan, dtype=jnp.float32)
     best_assignment = (init_rows, init_cols)
 
     def cond_fn(state):
@@ -36,13 +36,17 @@ def solve_bottleneck_assignment(
 
         new_low = jnp.where(is_feasible, low, mid + 1)
         new_high = jnp.where(is_feasible, mid - 1, high)
-        new_best = jax.lax.cond(is_feasible, lambda: (rows, cols), lambda: best)
+        new_best = jax.lax.cond(
+            is_feasible,
+            lambda: (rows.astype(jnp.float32), cols.astype(jnp.float32)),
+            lambda: best,
+        )
         return (new_low, new_high, new_best)
 
     _, _, best_assignment = jax.lax.while_loop(
         cond_fn, body_fn, (low, high, best_assignment)
     )
-    return best_assignment
+    return jax.tree.map(lambda x: x.astype(jnp.int32), best_assignment)
 
 
 def lexicographic_bottleneck_assignment(
@@ -52,8 +56,8 @@ def lexicographic_bottleneck_assignment(
     m_size = cost_matrix.shape[0]
 
     # Initialize arrays to store results
-    row_indices = jnp.full((m_size,), jnp.nan, dtype=jnp.int32)
-    col_indices = jnp.full((m_size,), jnp.nan, dtype=jnp.int32)
+    row_indices = jnp.full((m_size,), jnp.nan, dtype=jnp.float32)
+    col_indices = jnp.full((m_size,), jnp.nan, dtype=jnp.float32)
 
     cost_matrix = cost_matrix.astype(jnp.float32)
 
@@ -88,18 +92,7 @@ def lexicographic_bottleneck_assignment(
     (_, row_indices, col_indices), _ = jax.lax.scan(
         scan_fn, (cost_matrix, row_indices, col_indices), jnp.arange(m_size)
     )
+    row_indices = row_indices.astype(jnp.int32)
+    col_indices = col_indices.astype(jnp.int32)
 
     return row_indices, col_indices
-
-
-# Usage:
-cost_matrix = jnp.asarray(
-    [
-        [8, 4, 7],
-        [5, 2, 3],
-        [9, 6, 7],
-    ]
-)
-rows, cols = lexicographic_bottleneck_assignment(cost_matrix)
-print("Optimal assignment:", rows, cols)
-print("Maximum cost:", cost_matrix[rows, cols].max())
