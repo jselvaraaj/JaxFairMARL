@@ -58,6 +58,7 @@ class MPEState(NamedTuple):
     agent_indices_to_landmark_index: Int[Array, f"{AgentIndexAxis}"]
     landmark_occupancy: Float[Array, f"{LandmarkIndexAxis}"]
     closest_landmark_idx: Int[Array, f"{AgentIndexAxis}"]
+    distance_travelled: Float[Array, f"{AgentIndexAxis}"]
     did_agent_die_this_time_step: Float[Array, f"{AgentIndexAxis}"]
     agent_communication_message: Float[Array, f"{AgentIndexAxis} ..."] | None
     agent_visibility_radius: Float[Array, f"{AgentIndexAxis}"]
@@ -109,6 +110,8 @@ class TargetMPEEnvironment(MultiAgentEnv):
         add_target_goal_to_nodes=True,
         heterogeneous_agents=False,
         assignment_strategy=AssignmentStrategy.MIN_MAX_FAIR,
+        fair_reward_scale=1.0,
+        fair_reward_shift=0.0,
     ):
         super().__init__(
             num_agents=num_agents,
@@ -168,6 +171,8 @@ class TargetMPEEnvironment(MultiAgentEnv):
 
         self.one_time_death_reward = jnp.full((self.num_agents,), one_time_death_reward)
         self.distance_to_goal_reward_coefficient = distance_to_goal_reward_coefficient
+        self.fair_reward_scale = fair_reward_scale
+        self.fair_reward_shift = fair_reward_shift
 
         # TODO: fix this to correct observation space
         self.observation_spaces = default(
@@ -354,6 +359,7 @@ class TargetMPEEnvironment(MultiAgentEnv):
             agent_indices_to_landmark_index=agent_indices_to_landmark_index,
             landmark_occupancy=jnp.zeros(self.num_landmarks),
             closest_landmark_idx=jnp.zeros(self.num_agents),
+            distance_travelled=jnp.zeros(self.num_agents),
             dones=jnp.full(self.num_agents, False),
             step=0,
             did_agent_die_this_time_step=jnp.full(self.num_agents, False),
@@ -838,12 +844,20 @@ class TargetMPEEnvironment(MultiAgentEnv):
             agent_velocities
         )
 
+        delta_dist = jnp.linalg.norm(
+            entity_positions[: self.num_agents]
+            - state.entity_positions[: self.num_agents],
+            axis=-1,
+        )
+        total_distance_travelled = state.distance_travelled + delta_dist
+
         state = MPEState(
             entity_positions=entity_positions,
             entity_velocities=entity_velocities,
             landmark_occupancy=landmark_to_closest_agent_dist,
             agent_indices_to_landmark_index=agent_indices_to_landmark_index,
             closest_landmark_idx=state.closest_landmark_idx,
+            distance_travelled=total_distance_travelled,
             dones=dones,
             step=state.step + 1,
             did_agent_die_this_time_step=did_agent_die_this_time_step,
@@ -861,15 +875,16 @@ class TargetMPEEnvironment(MultiAgentEnv):
 
         return observation, graph, state, reward, dones_with_agent_label, {}
 
-    def fair_reward_optimal_distance_assignment(
-        self, state: MPEState
-    ) -> dict[AgentLabel, Float]:
-        pass
-
     def fair_reward_min_max_fair_assignment(
         self, state: MPEState
     ) -> dict[AgentLabel, Float]:
-        pass
+        eps = 1e-6
+        mu_t = jnp.mean(state.distance_travelled)
+        sigma_t = jnp.std(state.distance_travelled)
+
+        F_t = mu_t / (sigma_t + eps)
+
+        return self.fair_reward_scale * jnp.tanh(F_t - self.fair_reward_shift)
 
     def reward(self, state: MPEState) -> dict[AgentLabel, Float]:
         """Return dictionary of agent rewards"""
@@ -924,8 +939,15 @@ class TargetMPEEnvironment(MultiAgentEnv):
             )
         )
 
+        total_reward = global_reward + one_time_reaching_goal_reward
+
+        if self.assignment_strategy == AssignmentStrategy.MIN_MAX_FAIR:
+            total_reward = total_reward + self.fair_reward_min_max_fair_assignment(
+                state
+            )
+
         return {
-            agent_label: global_reward + one_time_reaching_goal_reward
+            agent_label: total_reward
             for agent_label, agent_index in self.agent_labels_to_index.items()
         }
 
