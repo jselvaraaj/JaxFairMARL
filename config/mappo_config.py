@@ -10,6 +10,12 @@ class CommunicationType(Enum):
     CURRENT_ACTION = "CURRENT_ACTION"
 
 
+class AssignmentStrategy(Enum):
+    RANDOM = "random"
+    OPTIMAL_DISTANCE = "optimal_distance"
+    MIN_MAX_FAIR = "min_max_fair"
+
+
 class EnvKwArgs(NamedTuple):
     """
     Attributes:
@@ -20,19 +26,24 @@ class EnvKwArgs(NamedTuple):
 
     num_agents: int = 3
     max_steps: int = 50
-    collision_reward_coefficient: float = -10
+    collision_reward_coefficient: float = -1
     one_time_death_reward: int = 10
-    distance_to_goal_reward_coefficient: int = 1
-    entity_acceleration: int = 5
+    distance_to_goal_reward_coefficient: int = 10
+    entity_acceleration: int = 1
 
     agent_max_speed: int = -1
     agent_visibility_radius: list[float] = [
-        0.25,
+        0.5,
     ]
     entities_initial_coord_radius: list[float] = [
-        1,
+        2,
     ]
     agent_communication_type: CommunicationType.value = None
+
+    assignment_strategy: AssignmentStrategy.value = (
+        AssignmentStrategy.OPTIMAL_DISTANCE.value
+    )
+
     agent_control_noise_std: float = 0.0
     add_self_edges_to_nodes: bool = True
 
@@ -95,7 +106,7 @@ class NeuralODEConfig(NamedTuple):
 
 
 class NetworkConfig(NamedTuple):
-    use_rnn: bool = False
+    use_rnn: bool = True
     use_graph_attention_in_actor: bool = True
     use_graph_attention_in_critic: bool = False
 
@@ -142,12 +153,12 @@ class MAPPOConfig(NamedTuple):
 
     @classmethod
     def create(
-            cls,
-            env_config=EnvConfig(),
-            training_config=TrainingConfig(),
-            network_config=NetworkConfig(),
-            wandb_config=WandbConfig(),
-            testing=False,
+        cls,
+        env_config=EnvConfig(),
+        training_config=TrainingConfig(),
+        network_config=NetworkConfig(),
+        wandb_config=WandbConfig(),
+        testing=False,
     ) -> MAPPOConfig:
         num_actors = env_config.env_kwargs.num_agents * training_config.num_envs
         batch_size = num_actors * training_config.ppo_config.num_steps_per_update
@@ -160,18 +171,18 @@ class MAPPOConfig(NamedTuple):
                 // training_config.ppo_config.num_steps_per_update
             ),
             minibatch_size=(
-                    batch_size // training_config.ppo_config.num_minibatches_actors
+                batch_size // training_config.ppo_config.num_minibatches_actors
             ),
             scaled_clip_eps=(
                 training_config.ppo_config.clip_eps / env_config.env_kwargs.num_agents
                 if training_config.ppo_config.is_clip_eps_per_env
                 else training_config.ppo_config.clip_eps
             ),
-            num_entity_types=num_entity_types
+            num_entity_types=num_entity_types,
         )
         if not testing:
             assert (
-                    _derived_values.num_updates > 0
+                _derived_values.num_updates > 0
             ), "Number of updates per environment must be greater than 0."
 
         return cls(

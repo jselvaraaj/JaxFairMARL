@@ -10,18 +10,19 @@ from calculate_metric import get_stats_for_state
 sns.set_theme(style="dark", context="talk")  # or "darkgrid", "ticks", etc.
 
 from config.mappo_config import MAPPOConfig
-from .target_mpe_env import TargetMPEEnvironment, MPEState
+
+from .target_mpe_env import MPEState, TargetMPEEnvironment
 
 ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 
 class MPEVisualizer(object):
     def __init__(
-            self,
-            env: TargetMPEEnvironment,
-            state_seq: MPEState,
-            config: MAPPOConfig,
-            reward_seq=None,
+        self,
+        env: TargetMPEEnvironment,
+        state_seq: MPEState,
+        config: MAPPOConfig,
+        reward_seq=None,
     ):
         self.ax = None
         self.fig = None
@@ -45,9 +46,9 @@ class MPEVisualizer(object):
         self.init_render()
 
     def animate(
-            self,
-            save_filename: Optional[str] = None,
-            view: bool = True,
+        self,
+        save_filename: Optional[str] = None,
+        view: bool = True,
     ):
         """Anim for 2D fct - x (#steps, #pop, 2) & fitness (#steps, #pop)"""
         ani = animation.FuncAnimation(
@@ -84,7 +85,7 @@ class MPEVisualizer(object):
 
         sns.despine(ax=self.ax)
 
-        ax_lim = self.config.env_config.env_kwargs.entities_initial_coord_radius[0] + 2
+        ax_lim = self.config.env_config.env_kwargs.entities_initial_coord_radius[0]
 
         self.ax.set_xlim([-ax_lim, ax_lim])
         self.ax.set_ylim([-ax_lim, ax_lim])

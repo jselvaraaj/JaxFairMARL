@@ -89,7 +89,7 @@ class DiscreteNeuralODEScannedRNNCell(nn.Module):
         in_axes=0,
         out_axes=0,
         split_rngs={"params": False},
-        length=MAPPOConfig.create().network_config.neural_ODE_config.steps
+        length=MAPPOConfig.create().network_config.neural_ODE_config.steps,
     )
     @nn.compact
     def __call__(self, state, unused):
@@ -230,8 +230,9 @@ class GraphMultiHeadAttentionLayer(nn.Module):
 
             key_edge_features = key_projection(edge_features)
 
-            key_received_attributes = key_received_attributes + key_edge_features[:, None,
-                                                                None]
+            key_received_attributes = (
+                key_received_attributes + key_edge_features[:, None, None]
+            )
 
             softmax_logits: Float[Array, Literal["edge_id"]] = jnp.sum(
                 key_sent_attributes * key_received_attributes, axis=-1
@@ -250,9 +251,7 @@ class GraphMultiHeadAttentionLayer(nn.Module):
             nodes_seg_sum_from_each_attn_head.append(nodes_seg_sum)
 
         if avg_multi_head:
-            nodes = jnp.mean(
-                jnp.stack(nodes_seg_sum_from_each_attn_head), axis=0
-            )
+            nodes = jnp.mean(jnp.stack(nodes_seg_sum_from_each_attn_head), axis=0)
         else:
             nodes = jnp.concatenate(nodes_seg_sum_from_each_attn_head, axis=-1)
 
@@ -272,10 +271,14 @@ class GraphStackedMultiHeadAttention(nn.Module):
         # Make the given graph into jraph compatible format
         equivariant_nodes, _, edges, receivers, senders, _, n_node, n_edge, _ = graph
 
-        num_time_steps, num_actors, num_nodes, rolling_memory_dim, *node_feature_dim = equivariant_nodes.shape
+        num_time_steps, num_actors, num_nodes, rolling_memory_dim, *node_feature_dim = (
+            equivariant_nodes.shape
+        )
         _, _, num_edges, edge_feature_dim = edges.shape
         num_graph = num_time_steps * num_actors
-        nodes = equivariant_nodes.reshape((num_graph * num_nodes, rolling_memory_dim, *node_feature_dim))
+        nodes = equivariant_nodes.reshape(
+            (num_graph * num_nodes, rolling_memory_dim, *node_feature_dim)
+        )
         edges = edges.reshape((num_graph * num_edges, edge_feature_dim))
 
         index_offset = jnp.arange(num_graph).reshape(num_time_steps, num_actors)[
@@ -335,13 +338,15 @@ class GraphAttentionActorRNN(nn.Module):
             equivariant_nodes = graph.equivariant_nodes.reshape(
                 graph.equivariant_nodes.shape[:-2] + (-1,)
             )
-            nodes = jnp.concatenate([equivariant_nodes, graph.non_equivariant_nodes], axis=-1)
+            nodes = jnp.concatenate(
+                [equivariant_nodes, graph.non_equivariant_nodes], axis=-1
+            )
             # Embed entity_type.
             entity_type = nodes[..., -1].astype(jnp.int32)
-            entity_emb = nn.Embed(self.config.derived_values.num_entity_types,
-                                  self.config.network_config.entity_type_embedding_dim)(
-                entity_type
-            )
+            entity_emb = nn.Embed(
+                self.config.derived_values.num_entity_types,
+                self.config.network_config.entity_type_embedding_dim,
+            )(entity_type)
             nodes = jnp.concatenate([nodes[..., :-1], entity_emb], axis=-1)
             nodes = PathNet()(nodes)
 
@@ -375,11 +380,17 @@ class CriticRNN(nn.Module):
 
             num_agents = self.config.env_config.env_kwargs.num_agents
             num_entities = 2 * num_agents
-            senders, receivers = jnp.meshgrid(jnp.arange(num_entities), jnp.arange(num_agents))
+            senders, receivers = jnp.meshgrid(
+                jnp.arange(num_entities), jnp.arange(num_agents)
+            )
             senders = senders.flatten()
             receivers = receivers.flatten()
-            senders = jnp.broadcast_to(senders, graph.senders.shape[:-1] + senders.shape)
-            receivers = jnp.broadcast_to(receivers, graph.receivers.shape[:-1] + receivers.shape)
+            senders = jnp.broadcast_to(
+                senders, graph.senders.shape[:-1] + senders.shape
+            )
+            receivers = jnp.broadcast_to(
+                receivers, graph.receivers.shape[:-1] + receivers.shape
+            )
 
             edges = jnp.zeros(graph.edges.shape[:-2] + (senders.shape[-1], 1))
 
@@ -397,13 +408,15 @@ class CriticRNN(nn.Module):
             equivariant_nodes = graph.equivariant_nodes.reshape(
                 graph.equivariant_nodes.shape[:-2] + (-1,)
             )
-            nodes = jnp.concatenate([equivariant_nodes, graph.non_equivariant_nodes], axis=-1)
+            nodes = jnp.concatenate(
+                [equivariant_nodes, graph.non_equivariant_nodes], axis=-1
+            )
             # Embed entity_type.
             entity_type = nodes[..., -1].astype(jnp.int32)
-            entity_emb = nn.Embed(self.config.derived_values.num_entity_types
-                                  , self.config.network_config.entity_type_embedding_dim)(
-                entity_type
-            )
+            entity_emb = nn.Embed(
+                self.config.derived_values.num_entity_types,
+                self.config.network_config.entity_type_embedding_dim,
+            )(entity_type)
             nodes = jnp.concatenate([nodes[..., :-1], entity_emb], axis=-1)
             world_state = jnp.sum(
                 nodes, axis=2

@@ -1,4 +1,3 @@
-from enum import Enum
 from functools import partial
 from typing import NamedTuple
 
@@ -7,7 +6,7 @@ import jax.numpy as jnp
 import optax
 from jaxtyping import Array, Bool, Float, Int
 
-from config.mappo_config import CommunicationType
+from config.mappo_config import AssignmentStrategy, CommunicationType
 from envs.bottleneck_assignment_optimization import lexicographic_bottleneck_assignment
 
 from .default_env_config import (
@@ -64,12 +63,6 @@ class MPEState(NamedTuple):
     agent_visibility_radius: Float[Array, f"{AgentIndexAxis}"]
 
 
-class AssignmentStrategy(Enum):
-    RANDOM = "random"
-    OPTIMAL_DISTANCE = "optimal_distance"
-    MIN_MAX_FAIR = "min_max_fair"
-
-
 class LinSpaceConfig(NamedTuple):
     lin_range: tuple[int, int]
     lin_step: float
@@ -112,6 +105,7 @@ class TargetMPEEnvironment(MultiAgentEnv):
         assignment_strategy=AssignmentStrategy.MIN_MAX_FAIR,
         fair_reward_scale=1.0,
         fair_reward_shift=0.0,
+        eval=False,
     ):
         super().__init__(
             num_agents=num_agents,
@@ -135,6 +129,7 @@ class TargetMPEEnvironment(MultiAgentEnv):
         self.agent_communication_type = agent_communication_type
 
         self.heterogeneous_agents = heterogeneous_agents
+        self.eval = eval
 
         if heterogeneous_agents:
             self.agent_entity_type = self.entity_indices[: self.num_agents]
@@ -326,12 +321,25 @@ class TargetMPEEnvironment(MultiAgentEnv):
             return final_state[1]
 
         if initial_entity_position.size == 0:
-            entity_positions = sample_points(
-                self.num_entities,
-                key_landmark,
-                min_dist_between_points=0.5,
-                bounds=(-r, +r),
-            )
+            if not self.eval:
+                entity_positions = sample_points(
+                    self.num_entities,
+                    key_landmark,
+                    min_dist_between_points=0.5,
+                    bounds=(-r, +r),
+                )
+            else:
+                entity_positions = jnp.asarray(
+                    [
+                        [0, r / 2],
+                        [r / 4, r / 2],
+                        [r / 2, r / 2],
+                        # Landmarks
+                        [-r / 2, 0],
+                        [-r / 2, -r / 4],
+                        [-r / 2, -r / 2],
+                    ]
+                )
 
             # entity_positions = jnp.concatenate(
             #     [
@@ -770,7 +778,7 @@ class TargetMPEEnvironment(MultiAgentEnv):
             )
 
         agent_indices_to_landmark_index = None
-        if self.assignment_strategy == AssignmentStrategy.RANDOM:
+        if self.assignment_strategy == AssignmentStrategy.RANDOM.value:
             key, key_assignment = jax.random.split(key)
             agent_indices_to_landmark_index = jax.random.randint(
                 key_assignment,
@@ -778,7 +786,7 @@ class TargetMPEEnvironment(MultiAgentEnv):
                 self.num_landmarks,
                 self.num_entities,
             )
-        elif self.assignment_strategy == AssignmentStrategy.OPTIMAL_DISTANCE:
+        elif self.assignment_strategy == AssignmentStrategy.OPTIMAL_DISTANCE.value:
             costs = compute_distance(self.agent_indices, self.landmark_indices)
             agent_idx, landmark_idx = optax.assignment.hungarian_algorithm(costs)
 
@@ -789,7 +797,7 @@ class TargetMPEEnvironment(MultiAgentEnv):
             agent_indices_to_landmark_index = agent_indices_to_landmark_index.at[
                 agent_idx
             ].set(landmark_idx)
-        elif self.assignment_strategy == AssignmentStrategy.MIN_MAX_FAIR:
+        elif self.assignment_strategy == AssignmentStrategy.MIN_MAX_FAIR.value:
             costs = compute_distance(self.agent_indices, self.landmark_indices)
             agent_idx, landmark_idx = lexicographic_bottleneck_assignment(costs)
 
@@ -800,7 +808,8 @@ class TargetMPEEnvironment(MultiAgentEnv):
             agent_indices_to_landmark_index = agent_indices_to_landmark_index.at[
                 agent_idx
             ].set(landmark_idx)
-
+        else:
+            raise Exception
         dist_matrix = compute_distance(self.agent_indices, self.landmark_indices)
 
         landmark_to_closest_agent_dist = (
