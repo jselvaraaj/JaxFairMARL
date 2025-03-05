@@ -24,7 +24,7 @@ class EnvKwArgs(NamedTuple):
         agent_max_speed: Negative value means no maximum speed.
     """
 
-    num_agents: int = 3
+    num_agents: int = 2
     max_steps: int = 50
     collision_reward_coefficient: float = -1
     one_time_death_reward: int = 10
@@ -40,9 +40,7 @@ class EnvKwArgs(NamedTuple):
     ]
     agent_communication_type: CommunicationType.value = None
 
-    assignment_strategy: AssignmentStrategy.value = (
-        AssignmentStrategy.OPTIMAL_DISTANCE.value
-    )
+    assignment_strategy: AssignmentStrategy.value = AssignmentStrategy.RANDOM.value
 
     agent_control_noise_std: float = 0.0
     add_self_edges_to_nodes: bool = True
