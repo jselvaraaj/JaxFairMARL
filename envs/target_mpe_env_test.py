@@ -4,7 +4,7 @@ import jax
 import jax.numpy as jnp
 
 from envs.schema import PRNGKey
-from envs.target_mpe_env import TargetMPEEnvironment, MPEState
+from envs.target_mpe_env import MPEState, TargetMPEEnvironment
 
 
 def get_direction_vector(vec1, vec2):
@@ -24,7 +24,12 @@ class TargetMPEEnvTest(unittest.TestCase):
         num_agents = 3
 
         env = TargetMPEEnvironment(num_agents=num_agents)
-        observation, graph, state = env.reset(key_r)
+        initial_communication_message = jnp.asarray([])
+        initial_entity_position = jnp.asarray([])
+
+        observation, graph, state = env.reset(
+            key_r, initial_communication_message, initial_entity_position
+        )
 
         return env, graph, state, max_steps, key
 
@@ -54,10 +59,17 @@ class TargetMPEEnvTest(unittest.TestCase):
         )
 
         return MPEState(
-            entity_positions=entity_positions,  # type: ignore
-            entity_velocities=jnp.zeros((env.num_entities, env.position_dim)),  # type: ignore
             dones=jnp.full(env.num_agents, False),  # type: ignore
             step=0,  # type: ignore
+            entity_positions=entity_positions,  # type: ignore
+            entity_velocities=jnp.zeros((env.num_entities, env.position_dim)),  # type: ignore
+            agent_indices_to_landmark_index=jnp.arange(env.num_agents, dtype=jnp.int32),  # type: ignore
+            landmark_occupancy=jnp.zeros(env.num_landmarks, dtype=jnp.int32),  # type: ignore
+            closest_landmark_idx=jnp.zeros(env.num_agents, dtype=jnp.int32),  # type: ignore
+            distance_travelled=jnp.zeros(env.num_agents, dtype=jnp.float32),  # type: ignore
+            did_agent_die_this_time_step=jnp.zeros(env.num_agents, dtype=jnp.bool_),  # type: ignore
+            agent_communication_message=jnp.asarray([]),
+            agent_visibility_radius=jnp.ones(env.num_agents, dtype=jnp.float32) * env.agent_visibility_radius,  # type: ignore
         )
 
     # def test_target_mpe_rewards(self):
@@ -108,6 +120,8 @@ class TargetMPEEnvTest(unittest.TestCase):
             graph = env.get_graph(state)
 
             prev_state = state
+            initial_communication_message = jnp.asarray([])
+            initial_entity_position = jnp.asarray([])
 
             for _ in range(max_steps):
                 key, key_env = jax.random.split(key)
@@ -115,7 +129,13 @@ class TargetMPEEnvTest(unittest.TestCase):
                     agent_label: 0 for i, agent_label in enumerate(env.agent_labels)
                 }
 
-                obs, _, state, rew, dones, _ = env.step(key_env, state, action)
+                obs, _, state, rew, dones, _ = env.step(
+                    key_env,
+                    state,
+                    action,
+                    initial_communication_message,
+                    initial_entity_position,
+                )
                 self.assertTrue(
                     jnp.array_equal(
                         prev_state.entity_positions, state.entity_positions
@@ -134,11 +154,20 @@ class TargetMPEEnvTest(unittest.TestCase):
         init_state = TargetMPEEnvTest.get_init_state(key, env)
         state = init_state
 
+        initial_communication_message = jnp.asarray([])
+        initial_entity_position = jnp.asarray([])
+
         for _ in range(max_steps):
             key, key_env = jax.random.split(key)
             action = {agent_label: 1 for i, agent_label in enumerate(env.agent_labels)}
 
-            obs, _, state, rew, dones, _ = env.step(key_env, state, action)
+            obs, _, state, rew, dones, _ = env.step(
+                key_env,
+                state,
+                action,
+                initial_communication_message,
+                initial_entity_position,
+            )
 
         init_state_agent_positions = init_state.entity_positions[: env.num_agents]
         state_agent_positions = state.entity_positions[: env.num_agents]
@@ -159,11 +188,20 @@ class TargetMPEEnvTest(unittest.TestCase):
         init_state = TargetMPEEnvTest.get_init_state(key, env)
         state = init_state
 
+        initial_communication_message = jnp.asarray([])
+        initial_entity_position = jnp.asarray([])
+
         for _ in range(max_steps):
             key, key_env = jax.random.split(key)
             action = {agent_label: 2 for i, agent_label in enumerate(env.agent_labels)}
 
-            obs, _, state, rew, dones, _ = env.step(key_env, state, action)
+            obs, _, state, rew, dones, _ = env.step(
+                key_env,
+                state,
+                action,
+                initial_communication_message,
+                initial_entity_position,
+            )
 
         init_state_agent_positions = init_state.entity_positions[: env.num_agents]
         state_agent_positions = state.entity_positions[: env.num_agents]
@@ -184,11 +222,20 @@ class TargetMPEEnvTest(unittest.TestCase):
         init_state = TargetMPEEnvTest.get_init_state(key, env)
         state = init_state
 
+        initial_communication_message = jnp.asarray([])
+        initial_entity_position = jnp.asarray([])
+
         for _ in range(max_steps):
             key, key_env = jax.random.split(key)
             action = {agent_label: 3 for i, agent_label in enumerate(env.agent_labels)}
 
-            obs, _, state, rew, dones, _ = env.step(key_env, state, action)
+            obs, _, state, rew, dones, _ = env.step(
+                key_env,
+                state,
+                action,
+                initial_communication_message,
+                initial_entity_position,
+            )
 
         init_state_agent_positions = init_state.entity_positions[: env.num_agents]
         state_agent_positions = state.entity_positions[: env.num_agents]
@@ -209,11 +256,20 @@ class TargetMPEEnvTest(unittest.TestCase):
         init_state = TargetMPEEnvTest.get_init_state(key, env)
         state = init_state
 
+        initial_communication_message = jnp.asarray([])
+        initial_entity_position = jnp.asarray([])
+
         for _ in range(max_steps):
             key, key_env = jax.random.split(key)
             action = {agent_label: 4 for i, agent_label in enumerate(env.agent_labels)}
 
-            obs, _, state, rew, dones, _ = env.step(key_env, state, action)
+            obs, _, state, rew, dones, _ = env.step(
+                key_env,
+                state,
+                action,
+                initial_communication_message,
+                initial_entity_position,
+            )
 
         init_state_agent_positions = init_state.entity_positions[: env.num_agents]
         state_agent_positions = state.entity_positions[: env.num_agents]

@@ -102,7 +102,7 @@ class TargetMPEEnvironment(MultiAgentEnv):
         distance_to_goal_reward_coefficient=5,
         add_target_goal_to_nodes=True,
         heterogeneous_agents=False,
-        assignment_strategy=AssignmentStrategy.MIN_MAX_FAIR,
+        assignment_strategy=AssignmentStrategy.MIN_MAX_FAIR.value,
         fair_reward_scale=1.0,
         fair_reward_shift=0.0,
         eval=False,
