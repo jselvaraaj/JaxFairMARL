@@ -434,14 +434,14 @@ class TargetMPEEnvironment(MultiAgentEnv):
                     [
                         agent_position.flatten() - agent_position.flatten(),
                         agent_velocity.flatten(),
-                        state.entity_positions[
-                            state.agent_indices_to_landmark_index[agent_idx]
-                        ].flatten(),
-                        state.entity_positions[
-                            state.agent_indices_to_landmark_index[agent_idx]
-                        ].flatten(),
-                        # first_landmark_relative_position.flatten(),
-                        # second_landmark_relative_position.flatten(),
+                        # state.entity_positions[
+                        #     state.agent_indices_to_landmark_index[agent_idx]
+                        # ].flatten(),
+                        # state.entity_positions[
+                        #     state.agent_indices_to_landmark_index[agent_idx]
+                        # ].flatten(),
+                        first_landmark_relative_position.flatten(),
+                        second_landmark_relative_position.flatten(),
                         jnp.zeros_like(
                             jnp.repeat(state.landmark_occupancy[first_landmark_idx], 2)
                         ),
@@ -450,7 +450,7 @@ class TargetMPEEnvironment(MultiAgentEnv):
                         ),
                     ]
                 ),
-                state.agent_indices_to_landmark_index[agent_idx],  # first_landmark_idx,
+                first_landmark_idx,
             )
 
         observation, closest_landmark_idx = _observation(self.agent_indices, state)

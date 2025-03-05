@@ -29,7 +29,7 @@ class EnvKwArgs(NamedTuple):
     collision_reward_coefficient: float = -1
     one_time_death_reward: int = 10
     distance_to_goal_reward_coefficient: int = 10
-    entity_acceleration: int = 1
+    entity_acceleration: int = 5
 
     agent_max_speed: int = -1
     agent_visibility_radius: list[float] = [

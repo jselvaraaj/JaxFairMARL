@@ -76,6 +76,11 @@ class MPEVisualizer(object):
             agent_visibility_radius=self.state_seq.agent_visibility_radius[0][
                 env_index
             ],
+            agent_indices_to_landmark_index=self.state_seq.agent_indices_to_landmark_index[
+                0
+            ][
+                env_index
+            ],
         )
         self.collision_counter = 0
 
@@ -98,7 +103,11 @@ class MPEVisualizer(object):
         fontsize = width_pixels / (75 * ax_lim)
         ordered_color = []
         for i in range(self.env.num_agents):
-            color = palette[i % len(palette)]
+            # Extract the index safely without using item() directly on potentially multi-dimensional array
+            landmark_idx = (
+                state.agent_indices_to_landmark_index[i] - self.env.num_agents
+            )
+            color = palette[landmark_idx.item()]
             circle = Circle(
                 state.entity_positions[i],  # type: ignore
                 self.env.entity_radius[i],
