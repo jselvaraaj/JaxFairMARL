@@ -389,8 +389,8 @@ class TargetMPEEnvironment(MultiAgentEnv):
         @partial(jax.vmap, in_axes=(None, 0))
         def compute_distance(
             agent_id: EntityIndex,
-            landmark_id: Int[Array, f"{EntityIndexAxis}"],
-        ) -> Float[Array, f"{EntityIndexAxis}"]:
+            landmark_id: Int[Array, f"{LandmarkIndexAxis}"],
+        ) -> Float[Array, f"{LandmarkIndexAxis}"]:
             # Using jnp.take to handle traced arrays properly in indexing
             agent_position = jnp.take(state.entity_positions, agent_id, axis=0)
             landmark_position = jnp.take(state.entity_positions, landmark_id, axis=0)
@@ -417,6 +417,10 @@ class TargetMPEEnvironment(MultiAgentEnv):
             dist_matrix = dist_matrix.at[first_landmark_idx].set(jnp.inf)
             second_landmark_idx = jnp.argmin(dist_matrix)
 
+            # Make them entity indices
+            first_landmark_idx = first_landmark_idx + self.num_agents
+            second_landmark_idx = second_landmark_idx + self.num_agents
+
             first_landmark_position = state.entity_positions[first_landmark_idx]
             second_landmark_position = state.entity_positions[second_landmark_idx]
             agent_position = state.entity_positions[agent_idx]
@@ -430,13 +434,23 @@ class TargetMPEEnvironment(MultiAgentEnv):
                     [
                         agent_position.flatten() - agent_position.flatten(),
                         agent_velocity.flatten(),
-                        first_landmark_relative_position.flatten(),
-                        second_landmark_relative_position.flatten(),
-                        jnp.repeat(state.landmark_occupancy[first_landmark_idx], 2),
-                        jnp.repeat(state.landmark_occupancy[second_landmark_idx], 2),
+                        state.entity_positions[
+                            state.agent_indices_to_landmark_index[agent_idx]
+                        ].flatten(),
+                        state.entity_positions[
+                            state.agent_indices_to_landmark_index[agent_idx]
+                        ].flatten(),
+                        # first_landmark_relative_position.flatten(),
+                        # second_landmark_relative_position.flatten(),
+                        jnp.zeros_like(
+                            jnp.repeat(state.landmark_occupancy[first_landmark_idx], 2)
+                        ),
+                        jnp.zeros_like(
+                            jnp.repeat(state.landmark_occupancy[second_landmark_idx], 2)
+                        ),
                     ]
                 ),
-                first_landmark_idx,
+                state.agent_indices_to_landmark_index[agent_idx],  # first_landmark_idx,
             )
 
         observation, closest_landmark_idx = _observation(self.agent_indices, state)
