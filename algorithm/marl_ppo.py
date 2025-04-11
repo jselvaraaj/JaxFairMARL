@@ -1123,4 +1123,7 @@ def main():
 
 
 if __name__ == "__main__":
+    import jax
+
+    jax.config.update("jax_debug_nans", True)
     main()

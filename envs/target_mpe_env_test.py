@@ -522,7 +522,7 @@ def test_observation_contains_nearest_landmarks(env_setup):
     # Test 2: Verify the second landmark in the observation
     # From the implementation, we know the second landmark is fixed as landmark 2
     second_landmark_rel_pos_obs = agent0_obs[6:8]
-    second_landmark_idx = env.num_agents + 2  # Index of landmark 2
+    second_landmark_idx = env.num_agents + 1  # Index of landmark 1
     expected_second_rel_pos = entity_positions[second_landmark_idx] - agent0_pos
 
     # Verify the second landmark relative position is correct

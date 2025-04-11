@@ -8,6 +8,7 @@ from jaxtyping import Array, Bool, Float, Int
 
 from config.mappo_config import AssignmentStrategy, CommunicationType
 from envs.bottleneck_assignment_optimization import lexicographic_bottleneck_assignment
+from envs.utils import sample_points
 
 from .default_env_config import (
     AGENT_COLOR,
@@ -282,44 +283,6 @@ class TargetMPEEnvironment(MultiAgentEnv):
             jax.random.choice(key_visibility_radius, self.agent_visibility_radius),
         )
 
-        @partial(jax.jit, static_argnums=(0,))
-        def sample_points(num_points, key, min_dist_between_points, bounds=(0, 1)):
-            def body_fun(state):
-                key, points, num_accepted = state
-                key, subkey = jax.random.split(key)
-                new_point = jax.random.uniform(
-                    subkey, (2,), minval=bounds[0], maxval=bounds[1]
-                )
-                distances = jnp.sqrt(jnp.sum((points - new_point) ** 2, axis=1))
-
-                # Create a boolean mask indicating which rows (points) are accepted
-                # i.e., from index 0 up to num_accepted-1.
-                mask = jnp.arange(num_points) < num_accepted
-
-                # "Ignore" distances for unaccepted slots by setting them to +inf
-                # so they won't affect the minimum-dist checks.
-                distances = jnp.where(mask, distances, jnp.inf)
-
-                is_valid = jnp.all(distances >= min_dist_between_points) | (
-                    num_accepted == 0
-                )
-
-                points = jax.lax.dynamic_update_slice(
-                    points, jnp.expand_dims(new_point, 0), (num_accepted, 0)
-                )
-                num_accepted += is_valid
-
-                return key, points, num_accepted
-
-            init_points = jnp.zeros((num_points, 2))
-            init_state = (key, init_points, 0)
-
-            final_state = jax.lax.while_loop(
-                lambda state: state[2] < num_points, body_fun, init_state
-            )
-
-            return final_state[1]
-
         if initial_entity_position.size == 0:
             if not self.eval:
                 entity_positions = sample_points(
@@ -418,11 +381,15 @@ class TargetMPEEnvironment(MultiAgentEnv):
             second_landmark_idx = jnp.argmin(dist_matrix)
 
             # Make them entity indices
-            first_landmark_idx = first_landmark_idx + self.num_agents
-            second_landmark_idx = second_landmark_idx + self.num_agents
+            # first_landmark_idx = first_landmark_idx + self.num_agents
+            # second_landmark_idx = second_landmark_idx + self.num_agents
 
-            first_landmark_position = state.entity_positions[first_landmark_idx]
-            second_landmark_position = state.entity_positions[second_landmark_idx]
+            first_landmark_position = state.entity_positions[
+                first_landmark_idx + self.num_agents
+            ]
+            second_landmark_position = state.entity_positions[
+                second_landmark_idx + self.num_agents
+            ]
             agent_position = state.entity_positions[agent_idx]
             agent_velocity = state.entity_velocities[agent_idx]
             first_landmark_relative_position = first_landmark_position - agent_position
@@ -434,20 +401,10 @@ class TargetMPEEnvironment(MultiAgentEnv):
                     [
                         agent_position.flatten() - agent_position.flatten(),
                         agent_velocity.flatten(),
-                        # state.entity_positions[
-                        #     state.agent_indices_to_landmark_index[agent_idx]
-                        # ].flatten(),
-                        # state.entity_positions[
-                        #     state.agent_indices_to_landmark_index[agent_idx]
-                        # ].flatten(),
                         first_landmark_relative_position.flatten(),
                         second_landmark_relative_position.flatten(),
-                        jnp.zeros_like(
-                            jnp.repeat(state.landmark_occupancy[first_landmark_idx], 2)
-                        ),
-                        jnp.zeros_like(
-                            jnp.repeat(state.landmark_occupancy[second_landmark_idx], 2)
-                        ),
+                        jnp.repeat(state.landmark_occupancy[first_landmark_idx], 2),
+                        jnp.repeat(state.landmark_occupancy[second_landmark_idx], 2),
                     ]
                 ),
                 first_landmark_idx,
@@ -626,7 +583,7 @@ class TargetMPEEnvironment(MultiAgentEnv):
 
         @partial(jax.vmap, in_axes=[0])
         def _force_on_entities_from_all_other_entities(
-            entity_i: Int[Array, EntityIndexAxis]
+            entity_i: Int[Array, EntityIndexAxis],
         ) -> Float[
             Array, f"{EntityIndexAxis} {EntityIndexAxis} {CoordinateAxisIndexAxis}"
         ]:
