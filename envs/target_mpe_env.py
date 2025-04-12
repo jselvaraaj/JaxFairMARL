@@ -636,7 +636,7 @@ class TargetMPEEnvironment(MultiAgentEnv):
         # softmax penetration
         k = self.contact_margin
         penetration = jnp.logaddexp(0, -(distance - distance_min) / k) * k
-        force = self.contact_force * delta_position / distance * penetration
+        force = self.contact_force * delta_position / jnp.where(distance > 0, distance, 1e-8) * penetration
         force_a = +force * self.is_moveable[entity_a]
         force_b = -force * self.is_moveable[entity_b]
         force = jnp.array([force_a, force_b])
@@ -669,7 +669,7 @@ class TargetMPEEnvironment(MultiAgentEnv):
         speed = jnp.sqrt(
             jnp.square(entity_velocities[0]) + jnp.square(entity_velocities[1])
         )
-        over_max = entity_velocities / speed * max_speed
+        over_max = entity_velocities / jnp.where(speed > 0, speed, 1e-8) * max_speed
 
         entity_velocities = jax.lax.select(
             (speed > max_speed) & (max_speed >= 0), over_max, entity_velocities
