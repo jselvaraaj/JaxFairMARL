@@ -6,6 +6,8 @@ import os
 from functools import partial
 from typing import Any, NamedTuple, cast
 
+from datetime import datetime
+
 import distrax
 import jax
 import jax.numpy as jnp
@@ -1080,6 +1082,9 @@ def make_train(config: MAPPOConfig):
 
 
 def main():
+
+    # Create timestamp string
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     config: MAPPOConfig = MAPPOConfig.create()
     assert (
         config.training_config.num_envs > 1
@@ -1090,9 +1095,10 @@ def main():
         project=config.wandb_config.project,
         mode=config.wandb_config.mode,
         config=dict_config,
+        name=f"{timestamp}_{config.env_config.env_kwargs.assignment_strategy}"
     )
     rng = jax.random.PRNGKey(config.training_config.seed)
-    with jax.disable_jit(False):
+    with jax.disable_jit(True):
         train_jit = jax.jit(make_train(config))
         out = train_jit(rng)
         block_until_ready(out)
@@ -1125,5 +1131,5 @@ def main():
 if __name__ == "__main__":
     import jax
 
-    jax.config.update("jax_debug_nans", True)
+    # jax.config.update("jax_debug_nans", True)
     main()

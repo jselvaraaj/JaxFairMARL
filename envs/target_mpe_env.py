@@ -285,12 +285,13 @@ class TargetMPEEnvironment(MultiAgentEnv):
 
         if initial_entity_position.size == 0:
             if not self.eval:
-                entity_positions = sample_points(
-                    self.num_entities,
-                    key_landmark,
-                    min_dist_between_points=0.5,
-                    bounds=(-r, +r),
-                )
+                entity_positions = jax.random.uniform(key_landmark, (self.num_entities,2), minval=-r, maxval=r)
+                # sample_points(
+                #     self.num_entities,
+                #     key_landmark,
+                #     min_dist_between_points=0.5,
+                #     bounds=(-r, +r),
+                # )
             else:
                 entity_positions = jnp.asarray(
                     [

@@ -94,7 +94,7 @@ class TrainingConfig(NamedTuple):
     anneal_lr: bool = True
     num_envs: int = 4
     gamma: float = 0.99
-    total_timesteps: float = 1e4
+    total_timesteps: float = 1e6
     ppo_config: PPOConfig = PPOConfig()
 
 
@@ -110,8 +110,8 @@ class NetworkConfig(NamedTuple):
     use_graph_attention_in_actor: bool = True
     use_graph_attention_in_critic: bool = False
 
-    fc_dim_size: int = 8
-    gru_hidden_dim: int = 8
+    fc_dim_size: int = 128
+    gru_hidden_dim: int = 128
 
     actor_num_hidden_linear_layer: int = 2
     critic_num_hidden_linear_layer: int = 2
@@ -120,18 +120,18 @@ class NetworkConfig(NamedTuple):
 
     num_graph_attn_layers: int = 2
     num_heads_per_attn_layer: int = 3
-    graph_attention_key_dim: int = 8
+    graph_attention_key_dim: int = 16
 
     graph_num_linear_layer: int = 2
-    graph_hidden_feature_dim: int = 8
+    graph_hidden_feature_dim: int = 16
 
     neural_ODE_config: NeuralODEConfig = NeuralODEConfig()
 
 
 class WandbConfig(NamedTuple):
-    entity: str = "josssdan"
+    entity: str = "jasminejerryaloor"
     project: str = "JaxInforMARL"
-    mode: Literal["online", "offline", "disabled"] = "disabled"
+    mode: Literal["online", "offline", "disabled"] = "online"
     save_model: bool = False
     checkpoint_model_every_update_steps: float = 1e2
 
