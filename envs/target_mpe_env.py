@@ -854,8 +854,7 @@ class TargetMPEEnvironment(MultiAgentEnv):
         }
         dones_with_agent_label.update({"__all__": jnp.all(dones)})
 
-        return observation, graph, state, reward, dones_with_agent_label, {}
-
+        return observation, graph, state, reward, dones_with_agent_label, {"debug": (landmark_to_closest_agent_dist, agent_indices_to_landmark_index)}
     def fair_reward_min_max_fair_assignment(
         self, state: MPEState
     ) -> dict[AgentLabel, Float]:

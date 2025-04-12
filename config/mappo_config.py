@@ -41,7 +41,7 @@ class EnvKwArgs(NamedTuple):
     agent_communication_type: CommunicationType.value = None
 
     assignment_strategy: AssignmentStrategy.value = (
-        AssignmentStrategy.OPTIMAL_DISTANCE.value
+        AssignmentStrategy.RANDOM.value
     )
 
     agent_control_noise_std: float = 0.0
@@ -72,8 +72,8 @@ class PPOConfig(NamedTuple):
     clip_eps: float = 0.2
     is_clip_eps_per_env: bool = False
     max_grad_norm: float = 10
-    num_steps_per_update: int = 128
-    num_minibatches_actors: int = 4
+    num_steps_per_update: int = 4
+    num_minibatches_actors: int = 1
     update_epochs: int = 4
 
     gae_lambda: float = 0.95
@@ -92,9 +92,9 @@ class TrainingConfig(NamedTuple):
     num_seeds: int = 2
     lr: float = 5e-4
     anneal_lr: bool = True
-    num_envs: int = 4
+    num_envs: int = 2
     gamma: float = 0.99
-    total_timesteps: float = 1e6
+    total_timesteps: float = 1e1
     ppo_config: PPOConfig = PPOConfig()
 
 
@@ -110,8 +110,8 @@ class NetworkConfig(NamedTuple):
     use_graph_attention_in_actor: bool = True
     use_graph_attention_in_critic: bool = False
 
-    fc_dim_size: int = 128
-    gru_hidden_dim: int = 128
+    fc_dim_size: int = 8
+    gru_hidden_dim: int = 8
 
     actor_num_hidden_linear_layer: int = 2
     critic_num_hidden_linear_layer: int = 2
@@ -131,7 +131,7 @@ class NetworkConfig(NamedTuple):
 class WandbConfig(NamedTuple):
     entity: str = "jasminejerryaloor"
     project: str = "JaxInforMARL"
-    mode: Literal["online", "offline", "disabled"] = "online"
+    mode: Literal["online", "offline", "disabled"] = "disabled"
     save_model: bool = False
     checkpoint_model_every_update_steps: float = 1e2
 
