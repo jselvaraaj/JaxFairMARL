@@ -240,10 +240,10 @@ def get_state_traj(
 
 
 if __name__ == "__main__":
-    artifact_version = "740"
+    artifact_version = "35"
 
     model_artifact_remote_name = (
-        f"josssdan/JaxInforMARL/PPO_RNN_Runner_State:v{artifact_version}"
+        f"jasminejerryaloor/JaxInforMARL/PPO_RNN_Runner_State:v{artifact_version}"
     )
 
     traj_batch, config, env = get_state_traj(
