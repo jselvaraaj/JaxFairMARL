@@ -862,18 +862,22 @@ class CoverageMPEEnvironment(MultiAgentEnv):
         }
         dones_with_agent_label.update({"__all__": jnp.all(dones)})
 
+        jax.tree.map(partial(breakpoint_if_nonfinite, name="observation"), observation)
+        jax.tree.map(partial(breakpoint_if_nonfinite, name="graph"), graph)
+        jax.tree.map(partial(breakpoint_if_nonfinite, name="state"), state)
+        jax.tree.map(partial(breakpoint_if_nonfinite, name="reward"), reward)
+        jax.tree.map(
+            partial(breakpoint_if_nonfinite, name="dones_with_agent_label"),
+            dones_with_agent_label,
+        )
+
         return (
             observation,
             graph,
             state,
             reward,
             dones_with_agent_label,
-            {
-                "debug": (
-                    landmark_to_closest_agent_dist,
-                    agent_indices_to_landmark_index,
-                )
-            },
+            {},
         )
 
     def fair_reward_min_max_fair_assignment(
@@ -1016,3 +1020,14 @@ class CoverageMPEEnvironment(MultiAgentEnv):
         ) * (action != 0)
         u = u.at[action_to_coordinate_axis].set(u_val)
         return u
+
+
+def breakpoint_if_nonfinite(x, name: str):
+    is_finite = jnp.isfinite(x).all()
+
+    jax.lax.cond(
+        is_finite,
+        lambda _: None,  # Do nothing if values are finite
+        lambda _: jax.debug.print("{} is not finite", name),  # Print only if non-finite
+        operand=None,
+    )

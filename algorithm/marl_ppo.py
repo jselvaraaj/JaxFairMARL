@@ -887,10 +887,6 @@ def ppo_single_update(
     train_states = update_state.network_train_states
     metric = traj_batch.info
     metric["loss"] = loss_info
-    # maybe ??
-    metric["debug"] = traj_batch.info["debug"]
-    metric["obs"] = traj_batch.obs
-    metric["graph"] = traj_batch.graph
     rng = update_state.rng_keys
 
     def callback(metric):
@@ -923,10 +919,6 @@ def ppo_single_update(
             model_artifact.add_dir(checkpoint_dir)
 
             wandb.log_artifact(model_artifact)
-        print(jax.tree.map(lambda x: jnp.any(jnp.isnan(x)), metric["debug"]))
-        print("obs", jax.tree.map(lambda x: jnp.any(jnp.isnan(x)), metric["obs"]))
-        print("graph", jax.tree.map(lambda x: jnp.any(jnp.isnan(x)), metric["graph"]))
-
         print(
             f"progress: {progress:.4f}% ; update step: {update_steps}/{config.derived_values.num_updates}"
         )
@@ -1114,6 +1106,7 @@ def main():
         train_jit = jax.jit(make_train(config))
         out = train_jit(rng)
         block_until_ready(out)
+        jax.effects_barrier()
 
     runner_state: UpdateStepRunnerState = out["runner_state"]
     out = {
