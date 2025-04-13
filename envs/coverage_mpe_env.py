@@ -343,12 +343,12 @@ class CoverageMPEEnvironment(MultiAgentEnv):
         agent_indices_to_landmark_index, landmark_occupancy = self.get_assignment(
             key, state
         )
-        checkify.check(
+        checkify.debug_check(
             (agent_indices_to_landmark_index != SENTINEL).all(),
             "agent_indices_to_landmark_index is used before it is initialized {i}",
             i=agent_indices_to_landmark_index,
         )
-        checkify.check(
+        checkify.debug_check(
             (landmark_occupancy != SENTINEL).all(),
             "landmark_occupancy is used before it is initialized {i}",
             i=landmark_occupancy,
@@ -358,7 +358,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             landmark_occupancy=landmark_occupancy,
         )
         obs, state = self.get_observation(state)
-        checkify.check(
+        checkify.debug_check(
             (state.closest_landmark_idx != SENTINEL).all(),
             "closest_landmark_idx is used before it is initialized {i}",
             i=state.closest_landmark_idx,
@@ -834,12 +834,12 @@ class CoverageMPEEnvironment(MultiAgentEnv):
         agent_indices_to_landmark_index, landmark_to_closest_agent_dist = (
             self.get_assignment(key, state)
         )
-        checkify.check(
+        checkify.debug_check(
             (agent_indices_to_landmark_index != SENTINEL).all(),
             "agent_indices_to_landmark_index is used before it is initialized {i}",
             i=agent_indices_to_landmark_index,
         )
-        checkify.check(
+        checkify.debug_check(
             (landmark_to_closest_agent_dist != SENTINEL).all(),
             "landmark_occupancy is used before it is initialized {i}",
             i=landmark_to_closest_agent_dist,
@@ -904,7 +904,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
         reward = self.reward(state)
 
         observation, state = self.get_observation(state)
-        checkify.check(
+        checkify.debug_check(
             (state.closest_landmark_idx != SENTINEL).all(),
             "closest_landmark_idx is used before it is initialized {i}",
             i=state.closest_landmark_idx,

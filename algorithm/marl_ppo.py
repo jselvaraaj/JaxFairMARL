@@ -1190,5 +1190,5 @@ def print_if_nonfinite(x):
 if __name__ == "__main__":
     import jax
 
-    jax.config.update("jax_debug_nans", True)
+    # jax.config.update("jax_debug_nans", True)
     main()
