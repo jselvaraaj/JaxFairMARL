@@ -869,6 +869,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             entity_positions[: self.num_agents],
         )
 
+        # Zero out velocities for newly dead agents
         agent_velocities = jnp.where(
             newly_dead_mask[..., None],
             jnp.zeros_like(entity_velocities[self.agent_indices]),

@@ -1135,11 +1135,10 @@ def main():
                 train_jit, errors=checkify.float_checks | checkify.user_checks
             )
             err, out = train_jit(rng)
-            err.throw()
+
         else:
             out = train_jit(rng)
         block_until_ready(out)
-        jax.effects_barrier()
 
     runner_state: UpdateStepRunnerState = out["runner_state"]
     out = {
@@ -1162,6 +1161,11 @@ def main():
         model_artifact.add_dir(checkpoint_dir)
 
         wandb.log_artifact(model_artifact)
+
+    # throw after saving model
+    if disable_checkify:
+        err.throw()
+    jax.effects_barrier()
 
     wandb.finish()
 
