@@ -11,6 +11,7 @@ import wandb
 from beartype.door import is_bearable
 from flax.training.train_state import TrainState
 from jaxtyping import Array
+from model.actor_critic_rnn import CriticRNN, GraphAttentionActorRNN
 
 from algorithm.marl_ppo import (
     ActorAndCriticHiddenStates,
@@ -26,9 +27,8 @@ from algorithm.marl_ppo import (
 )
 from config.config_format_conversion import config_to_dict, dict_to_config
 from config.mappo_config import MAPPOConfig
-from envs.mpe_visualizer import MPEVisualizer
-from envs.multiagent_env import MultiAgentEnv
-from model.actor_critic_rnn import CriticRNN, GraphAttentionActorRNN
+from envs.core.mpe_visualizer import MPEVisualizer
+from envs.core.multiagent_env import MultiAgentEnv
 
 
 def get_restored_actor(model_artifact_name, config_dict, num_episodes):

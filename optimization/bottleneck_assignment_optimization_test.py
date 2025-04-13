@@ -3,7 +3,7 @@
 import jax
 import jax.numpy as jnp
 
-from envs.bottleneck_assignment_optimization import (
+from optimization.bottleneck_assignment_optimization import (
     lexicographic_bottleneck_assignment,
     solve_bottleneck_assignment,
 )

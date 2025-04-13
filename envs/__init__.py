@@ -1,2 +1,2 @@
-from .target_mpe_env import TargetMPEEnvironment
-from .target_mpe_stacked_env import StackedTargetMPEEnvironment
+from .coverage_mpe_env import CoverageMPEEnvironment
+from .coverage_mpe_stacked_env import StackedCoverageMPEEnvironment

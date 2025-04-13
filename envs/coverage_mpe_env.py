@@ -7,10 +7,11 @@ import optax
 from jaxtyping import Array, Bool, Float, Int
 
 from config.mappo_config import AssignmentStrategy, CommunicationType
-from envs.bottleneck_assignment_optimization import lexicographic_bottleneck_assignment
-from envs.utils import sample_points
+from optimization.bottleneck_assignment_optimization import (
+    lexicographic_bottleneck_assignment,
+)
 
-from .default_env_config import (
+from .core.default_env_config import (
     AGENT_COLOR,
     CONTACT_FORCE,
     CONTACT_MARGIN,
@@ -21,7 +22,7 @@ from .default_env_config import (
     MAX_STEPS,
     OBS_COLOR,
 )
-from .multiagent_env import (
+from .core.multiagent_env import (
     AgentLabel,
     MultiAgentAction,
     MultiAgentEnv,
@@ -30,7 +31,7 @@ from .multiagent_env import (
     default,
     entity_labels_to_indices,
 )
-from .schema import (
+from .core.schema import (
     RGB,
     AgentIndexAxis,
     CoordinateAxisIndexAxis,
@@ -44,7 +45,7 @@ from .schema import (
     MultiAgentObservation,
     MultiAgentReward,
 )
-from .spaces import Box, Discrete
+from .core.spaces import Box, Discrete
 
 
 # If you change this, also change the MPEStateWithBuffer in target_mpe_stacked_env.py. Note the order of the fields is important.
@@ -71,7 +72,7 @@ class LinSpaceConfig(NamedTuple):
 
 # convert this into coverage
 #
-class TargetMPEEnvironment(MultiAgentEnv):
+class CoverageMPEEnvironment(MultiAgentEnv):
     """
     Discrete Actions  - [do nothing, left, right, down, up] where the 0-indexed value, correspond to action value.
     Continuous Actions - [x, y, z, w, a, b] where each continuous value corresponds to
@@ -285,7 +286,9 @@ class TargetMPEEnvironment(MultiAgentEnv):
 
         if initial_entity_position.size == 0:
             if not self.eval:
-                entity_positions = jax.random.uniform(key_landmark, (self.num_entities,2), minval=-r, maxval=r)
+                entity_positions = jax.random.uniform(
+                    key_landmark, (self.num_entities, 2), minval=-r, maxval=r
+                )
                 # sample_points(
                 #     self.num_entities,
                 #     key_landmark,
@@ -637,7 +640,12 @@ class TargetMPEEnvironment(MultiAgentEnv):
         # softmax penetration
         k = self.contact_margin
         penetration = jnp.logaddexp(0, -(distance - distance_min) / k) * k
-        force = self.contact_force * delta_position / jnp.where(distance > 0, distance, 1e-8) * penetration
+        force = (
+            self.contact_force
+            * delta_position
+            / jnp.where(distance > 0, distance, 1e-8)
+            * penetration
+        )
         force_a = +force * self.is_moveable[entity_a]
         force_b = -force * self.is_moveable[entity_b]
         force = jnp.array([force_a, force_b])
@@ -854,7 +862,20 @@ class TargetMPEEnvironment(MultiAgentEnv):
         }
         dones_with_agent_label.update({"__all__": jnp.all(dones)})
 
-        return observation, graph, state, reward, dones_with_agent_label, {"debug": (landmark_to_closest_agent_dist, agent_indices_to_landmark_index)}
+        return (
+            observation,
+            graph,
+            state,
+            reward,
+            dones_with_agent_label,
+            {
+                "debug": (
+                    landmark_to_closest_agent_dist,
+                    agent_indices_to_landmark_index,
+                )
+            },
+        )
+
     def fair_reward_min_max_fair_assignment(
         self, state: MPEState
     ) -> dict[AgentLabel, Float]:

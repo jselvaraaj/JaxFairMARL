@@ -3,10 +3,9 @@ Built off JaxMARL( https://github.com/FLAIROx/JaxMARL) baselines/MAPPO/mappo_rnn
 """
 
 import os
+from datetime import datetime
 from functools import partial
 from typing import Any, NamedTuple, cast
-
-from datetime import datetime
 
 import distrax
 import jax
@@ -29,11 +28,16 @@ from config.mappo_config import (
 from config.mappo_config import (
     MAPPOConfig as MAPPOConfig,
 )
-from envs.multiagent_env import MultiAgentEnv
-from envs.schema import EntityIndexAxis, MultiAgentGraph, MultiAgentObservation, PRNGKey
-from envs.target_mpe_env import GraphsTupleWithAgentIndex, LinSpaceConfig
+from envs.core.multiagent_env import MultiAgentEnv
+from envs.core.schema import (
+    EntityIndexAxis,
+    MultiAgentGraph,
+    MultiAgentObservation,
+    PRNGKey,
+)
+from envs.coverage_mpe_env import GraphsTupleWithAgentIndex, LinSpaceConfig
 from envs.wrapper import LogEnvState, MPELogWrapper, MPEWorldStateWrapper
-from model.actor_critic_rnn import CriticRNN, GraphAttentionActorRNN, ScannedRNN
+from network.actor_critic_rnn import CriticRNN, GraphAttentionActorRNN, ScannedRNN
 
 
 class Transition(NamedTuple):
@@ -1103,7 +1107,7 @@ def main():
         project=config.wandb_config.project,
         mode=config.wandb_config.mode,
         config=dict_config,
-        name=f"{timestamp}_{config.env_config.env_kwargs.assignment_strategy}"
+        name=f"{timestamp}_{config.env_config.env_kwargs.assignment_strategy}",
     )
     rng = jax.random.PRNGKey(config.training_config.seed)
     with jax.disable_jit(False):

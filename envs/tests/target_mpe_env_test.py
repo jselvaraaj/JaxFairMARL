@@ -4,7 +4,7 @@ import pytest
 from jaxtyping import Array, Float
 
 from config.mappo_config import AssignmentStrategy, CommunicationType
-from envs.target_mpe_env import MPEState, TargetMPEEnvironment
+from envs.coverage_mpe_env import CoverageMPEEnvironment, MPEState
 
 pos_dim = "pos_dim"
 num_entities = "num_entities"
@@ -27,7 +27,7 @@ def env_setup():
     key = jax.random.PRNGKey(0)
     key, key_r = jax.random.split(key, 2)
     num_agents = 3
-    env = TargetMPEEnvironment(num_agents=num_agents)
+    env = CoverageMPEEnvironment(num_agents=num_agents)
     initial_communication_message = jnp.asarray([])
     initial_entity_position = jnp.asarray([])
 
@@ -663,7 +663,7 @@ def test_step_assignment_optimal_distance(assignment_test_state):
     """Test OPTIMAL_DISTANCE assignment strategy."""
     key = jax.random.PRNGKey(2)
     num_agents = 3
-    env = TargetMPEEnvironment(
+    env = CoverageMPEEnvironment(
         num_agents=num_agents,
         assignment_strategy=AssignmentStrategy.OPTIMAL_DISTANCE.value,
     )
@@ -695,12 +695,12 @@ def test_min_max_fair_vs_optimal_distance():
         num_agents = 3
         key = jax.random.PRNGKey(42)
 
-        env_optimal = TargetMPEEnvironment(
+        env_optimal = CoverageMPEEnvironment(
             num_agents=num_agents,
             assignment_strategy=AssignmentStrategy.OPTIMAL_DISTANCE.value,
         )
 
-        env_minmax = TargetMPEEnvironment(
+        env_minmax = CoverageMPEEnvironment(
             num_agents=num_agents,
             assignment_strategy=AssignmentStrategy.MIN_MAX_FAIR.value,
         )

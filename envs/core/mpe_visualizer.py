@@ -4,14 +4,14 @@ import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from calculate_metric import get_stats_for_state
+from eval.calculate_metric import get_stats_for_state
 
 # Before creating your figure:
 sns.set_theme(style="dark", context="talk")  # or "darkgrid", "ticks", etc.
 
 from config.mappo_config import MAPPOConfig
 
-from .target_mpe_env import MPEState, TargetMPEEnvironment
+from ..coverage_mpe_env import CoverageMPEEnvironment, MPEState
 
 ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
@@ -19,7 +19,7 @@ ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 class MPEVisualizer(object):
     def __init__(
         self,
-        env: TargetMPEEnvironment,
+        env: CoverageMPEEnvironment,
         state_seq: MPEState,
         config: MAPPOConfig,
         reward_seq=None,

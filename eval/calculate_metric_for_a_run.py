@@ -3,8 +3,8 @@ from functools import partial
 import jax
 import jax.numpy as jnp
 
-from calculate_metric import get_stats_for_state
-from visualize_actor import get_state_traj
+from eval.calculate_metric import get_stats_for_state
+from eval.visualize_actor import get_state_traj
 
 artifact_version = "693"
 num_episodes = 100

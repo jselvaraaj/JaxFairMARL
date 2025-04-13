@@ -40,9 +40,7 @@ class EnvKwArgs(NamedTuple):
     ]
     agent_communication_type: CommunicationType.value = None
 
-    assignment_strategy: AssignmentStrategy.value = (
-        AssignmentStrategy.RANDOM.value
-    )
+    assignment_strategy: AssignmentStrategy.value = AssignmentStrategy.RANDOM.value
 
     agent_control_noise_std: float = 0.0
     add_self_edges_to_nodes: bool = True
@@ -54,7 +52,7 @@ class EnvKwArgs(NamedTuple):
 
 
 class EnvConfig(NamedTuple):
-    env_cls_name: str = "StackedTargetMPEEnvironment"
+    env_cls_name: str = "StackedCoverageMPEEnvironment"
     env_kwargs: EnvKwArgs = EnvKwArgs()
 
 

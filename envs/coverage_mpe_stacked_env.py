@@ -3,13 +3,13 @@ from typing import NamedTuple
 import jax.numpy as jnp
 from jaxtyping import Array, Bool, Float, Int
 
-from envs import TargetMPEEnvironment
+from envs import CoverageMPEEnvironment
 
-from .multiagent_env import (
+from .core.multiagent_env import (
     MultiAgentAction,
     PRNGKey,
 )
-from .schema import (
+from .core.schema import (
     AgentIndexAxis,
     CoordinateAxisIndexAxis,
     EntityIndexAxis,
@@ -17,7 +17,7 @@ from .schema import (
     MultiAgentGraph,
     MultiAgentObservation,
 )
-from .target_mpe_env import MPEState
+from .coverage_mpe_env import MPEState
 
 
 class MPEStateWithBuffer(NamedTuple):
@@ -47,7 +47,7 @@ def stack_arrays(latest_array, buffer):
     return buffer
 
 
-class StackedTargetMPEEnvironment(TargetMPEEnvironment):
+class StackedCoverageMPEEnvironment(CoverageMPEEnvironment):
     def __init__(self, agent_previous_obs_stack_size, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.stack_size = agent_previous_obs_stack_size
