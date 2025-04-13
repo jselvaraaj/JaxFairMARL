@@ -3,7 +3,7 @@ import jax.numpy as jnp
 import pytest
 from jaxtyping import Array, Float
 
-from config.mappo_config import CommunicationType
+from config.mappo_config import AssignmentStrategy, CommunicationType
 from envs.target_mpe_env import MPEState, TargetMPEEnvironment
 
 pos_dim = "pos_dim"
@@ -614,3 +614,203 @@ def test_graph_contains_assigned_landmarks(env_setup):
 
     # Restore original setting
     env.add_target_goal_to_nodes = original_add_target_goal
+
+
+# Tests for Assignment Strategies in _step function
+# -------------------------------------------------
+
+
+@pytest.fixture
+def assignment_test_state(env_setup):
+    """State with specific positions for testing assignments."""
+    env, _, _, _, _ = env_setup
+    assert env.num_agents == 3  # Ensure test positions match num_agents
+
+    # Positions designed for predictable assignments:
+    # Agent 0 (0,0) is closest to Landmark 0 (1,0)
+    # Agent 1 (5,0) is closest to Landmark 1 (6,0)
+    # Agent 2 (0,5) is closest to Landmark 2 (0,6)
+    entity_positions = jnp.array(
+        [
+            [0.0, 0.0],  # agent 0
+            [5.0, 0.0],  # agent 1
+            [0.0, 5.0],  # agent 2
+            [1.0, 0.0],  # landmark 0 (entity index 3)
+            [6.0, 0.0],  # landmark 1 (entity index 4)
+            [0.0, 6.0],  # landmark 2 (entity index 5)
+        ]
+    )
+
+    return MPEState(
+        dones=jnp.full(env.num_agents, False),
+        step=0,
+        entity_positions=entity_positions,
+        entity_velocities=jnp.zeros((env.num_entities, env.position_dim)),
+        # Initial assignment doesn't matter, _step recalculates it
+        agent_indices_to_landmark_index=jnp.full(env.num_agents, -1, dtype=jnp.int32),
+        landmark_occupancy=jnp.zeros(env.num_landmarks),
+        closest_landmark_idx=jnp.zeros(env.num_agents, dtype=jnp.int32),
+        distance_travelled=jnp.zeros(env.num_agents),
+        did_agent_die_this_time_step=jnp.zeros(env.num_agents, dtype=jnp.bool_),
+        agent_communication_message=jnp.asarray([]),
+        agent_visibility_radius=jnp.full(
+            env.num_agents, 10.0
+        ),  # Ensure all are visible
+    )
+
+
+def test_step_assignment_optimal_distance(assignment_test_state):
+    """Test OPTIMAL_DISTANCE assignment strategy."""
+    key = jax.random.PRNGKey(2)
+    num_agents = 3
+    env = TargetMPEEnvironment(
+        num_agents=num_agents,
+        assignment_strategy=AssignmentStrategy.OPTIMAL_DISTANCE.value,
+    )
+    state = assignment_test_state
+    dummy_actions = {agent_label: 0 for agent_label in env.agent_labels}
+
+    _, _, next_state, _, _, _ = env.step(
+        key, state, dummy_actions, jnp.asarray([]), jnp.asarray([])
+    )
+
+    # Based on positions in assignment_test_state, the optimal assignment is:
+    # Agent 0 (0,0) -> Landmark 0 (1,0) [Index 3] - Dist 1
+    # Agent 1 (5,0) -> Landmark 1 (6,0) [Index 4] - Dist 1
+    # Agent 2 (0,5) -> Landmark 2 (0,6) [Index 5] - Dist 1
+    # Total distance = 3
+    expected_assignment = jnp.array([3, 4, 5], dtype=jnp.int32)
+    assigned_indices = next_state.agent_indices_to_landmark_index
+
+    # The Hungarian algorithm output might permute the agent order,
+    # so we sort both expected and actual assignments based on agent index
+    # before comparing. However, the state stores it directly by agent index.
+    assert jnp.array_equal(assigned_indices, expected_assignment)
+
+
+def test_min_max_fair_vs_optimal_distance():
+    """Test that MIN_MAX_FAIR produces a different assignment from OPTIMAL_DISTANCE."""
+    with jax.disable_jit():
+        # Create test environments
+        num_agents = 3
+        key = jax.random.PRNGKey(42)
+
+        env_optimal = TargetMPEEnvironment(
+            num_agents=num_agents,
+            assignment_strategy=AssignmentStrategy.OPTIMAL_DISTANCE.value,
+        )
+
+        env_minmax = TargetMPEEnvironment(
+            num_agents=num_agents,
+            assignment_strategy=AssignmentStrategy.MIN_MAX_FAIR.value,
+        )
+
+        # Set up the specific positions from the example where strategies disagree
+        # Agents at positions:
+        # Agent 0: (0, 0)
+        # Agent 1: (0, 2)
+        # Agent 2: (8, 0)
+        agent_positions = jnp.array(
+            [
+                [0.0, 0.0],  # agent 0
+                [0.0, 2.0],  # agent 1
+                [8.0, 0.0],  # agent 2
+            ]
+        )
+
+        # Landmarks at positions:
+        # Landmark 0: (0, 1)
+        # Landmark 1: (0, 3)
+        # Landmark 2: (0, 8)
+        landmark_positions = jnp.array(
+            [
+                [0.0, 1.0],  # landmark 0 (entity index 3)
+                [0.0, 3.0],  # landmark 1 (entity index 4)
+                [0.0, 8.0],  # landmark 2 (entity index 5)
+            ]
+        )
+
+        # Combine positions
+        entity_positions = jnp.concatenate([agent_positions, landmark_positions])
+
+        # Set up state
+        state = MPEState(
+            dones=jnp.full(num_agents, False),
+            step=0,
+            entity_positions=entity_positions,
+            entity_velocities=jnp.zeros((num_agents + num_agents, 2)),
+            agent_indices_to_landmark_index=jnp.full(num_agents, -1, dtype=jnp.int32),
+            landmark_occupancy=jnp.zeros(num_agents),
+            closest_landmark_idx=jnp.zeros(num_agents, dtype=jnp.int32),
+            distance_travelled=jnp.zeros(num_agents),
+            did_agent_die_this_time_step=jnp.zeros(num_agents, dtype=jnp.bool_),
+            agent_communication_message=jnp.asarray([]),
+            agent_visibility_radius=jnp.full(
+                num_agents, 20.0
+            ),  # Large enough to see all
+        )
+
+        # Use the same state and actions for both environments
+        dummy_actions = {agent_label: 0 for agent_label in env_optimal.agent_labels}
+
+        # Step both environments
+        _, _, next_state_optimal, _, _, _ = env_optimal.step(
+            key, state, dummy_actions, jnp.asarray([]), jnp.asarray([])
+        )
+
+        _, _, next_state_minmax, _, _, _ = env_minmax.step(
+            key, state, dummy_actions, jnp.asarray([]), jnp.asarray([])
+        )
+
+        # Expected assignments based on the example
+        # OPTIMAL_DISTANCE: Agent 0→L0, Agent 1→L1, Agent 2→L2 = indices [3, 4, 5]
+        # MIN_MAX_FAIR: Agent 0→L1, Agent 1→L2, Agent 2→L0 = indices [4, 5, 3]
+        optimal_expected = jnp.array([3, 4, 5], dtype=jnp.int32)
+        minmax_expected = jnp.array([4, 5, 3], dtype=jnp.int32)
+
+        # Check that assignments match expectations
+        assigned_indices_optimal = next_state_optimal.agent_indices_to_landmark_index
+        assigned_indices_minmax = next_state_minmax.agent_indices_to_landmark_index
+
+        # Verify assignments
+        assert jnp.array_equal(assigned_indices_optimal, optimal_expected)
+        assert jnp.array_equal(assigned_indices_minmax, minmax_expected)
+
+        # Verify strategies produced different assignments
+        assert not jnp.array_equal(assigned_indices_optimal, assigned_indices_minmax)
+
+        # Compute distances to verify optimization criteria
+        distances = jnp.linalg.norm(
+            state.entity_positions[jnp.arange(3)][:, None, :]
+            - state.entity_positions[jnp.arange(3, 6)][None, :, :],
+            axis=-1,
+        )
+
+        # Optimal_distance: calculate total distance
+        total_optimal = sum(
+            distances[i, landmark_idx - 3]
+            for i, landmark_idx in enumerate(assigned_indices_optimal)
+        )
+
+        # Min_max_fair: calculate maximum distance
+        max_minmax = max(
+            distances[i, landmark_idx - 3]
+            for i, landmark_idx in enumerate(assigned_indices_minmax)
+        )
+
+        # Min_max_fair: calculate max optimal
+        max_optimal = max(
+            distances[i, landmark_idx - 3]
+            for i, landmark_idx in enumerate(assigned_indices_optimal)
+        )
+
+        # Check optimization criteria
+        # 1. OPTIMAL_DISTANCE should have lower total distance
+        total_minmax = sum(
+            distances[i, landmark_idx - 3]
+            for i, landmark_idx in enumerate(assigned_indices_minmax)
+        )
+        assert total_optimal < total_minmax
+
+        # 2. MIN_MAX_FAIR should have lower maximum distance
+        assert max_minmax < max_optimal
