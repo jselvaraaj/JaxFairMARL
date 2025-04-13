@@ -771,11 +771,11 @@ class CoverageMPEEnvironment(MultiAgentEnv):
 
         if self.assignment_strategy == AssignmentStrategy.RANDOM.value:
             key, key_assignment = jax.random.split(key)
-            agent_indices_to_landmark_index = jax.random.randint(
+            agent_indices_to_landmark_index = jax.random.choice(
                 key_assignment,
-                (self.num_agents,),
-                self.num_landmarks,
-                self.num_entities,
+                self.landmark_indices,
+                shape=(self.num_agents,),
+                replace=False,
             )
         elif self.assignment_strategy == AssignmentStrategy.OPTIMAL_DISTANCE.value:
             costs = compute_distance(self.agent_indices, self.landmark_indices)
@@ -859,16 +859,20 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             state.did_agent_die_this_time_step ^ is_agent_dead
         )
 
+        # Only move agents to their goal positions when they die for the first time
+        # Use a mask that is only True for newly dead agents
+        newly_dead_mask = (~state.did_agent_die_this_time_step) & is_agent_dead
+
         agent_positions = jnp.where(
-            did_agent_die_this_time_step[..., None],
+            newly_dead_mask[..., None],
             entity_positions[agent_indices_to_landmark_index],
             entity_positions[: self.num_agents],
         )
 
         agent_velocities = jnp.where(
-            did_agent_die_this_time_step[..., None],
-            entity_velocities[agent_indices_to_landmark_index],
-            entity_velocities[: self.num_agents],
+            newly_dead_mask[..., None],
+            jnp.zeros_like(entity_velocities[self.agent_indices]),
+            entity_velocities[self.agent_indices],
         )
 
         entity_positions = entity_positions.at[: self.num_agents].set(agent_positions)
