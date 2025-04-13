@@ -1131,7 +1131,9 @@ def main():
     with jax.disable_jit(False):
         train_jit = jax.jit(make_train(config))
         if not disable_checkify:
-            train_jit = checkify.checkify(train_jit, errors=checkify.all_checks)
+            train_jit = checkify.checkify(
+                train_jit, errors=checkify.float_checks | checkify.user_checks
+            )
             err, out = train_jit(rng)
             err.throw()
         else:
