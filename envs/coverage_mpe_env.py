@@ -47,6 +47,8 @@ from .core.schema import (
 )
 from .core.spaces import Box, Discrete
 
+SENTINEL = jnp.iinfo(jnp.int32).max
+
 
 # If you change this, also change the MPEStateWithBuffer in target_mpe_stacked_env.py. Note the order of the fields is important.
 class MPEState(NamedTuple):
@@ -324,9 +326,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
         else:
             entity_positions = initial_entity_position
 
-        agent_indices_to_landmark_index = jnp.full(
-            self.num_agents, jnp.nan, dtype=jnp.int32
-        )
+        agent_indices_to_landmark_index = jnp.full(self.num_agents, SENTINEL)
 
         state = MPEState(
             entity_positions=entity_positions,
@@ -378,11 +378,11 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             unoccupied_dist_matrix = jnp.where(
                 state.landmark_occupancy == 1, jnp.inf, dist_matrix
             )
+            jax.debug.print("dist_matrix shape {}", dist_matrix.shape)
 
-            first_landmark_idx = jnp.argmin(unoccupied_dist_matrix)
-
+            first_landmark_idx = jnp.argmin(unoccupied_dist_matrix, axis=0)
             dist_matrix = dist_matrix.at[first_landmark_idx].set(jnp.inf)
-            second_landmark_idx = jnp.argmin(dist_matrix)
+            second_landmark_idx = jnp.argmin(dist_matrix, axis=0)
 
             # Make them entity indices
             # first_landmark_idx = first_landmark_idx + self.num_agents
@@ -772,7 +772,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
 
             landmark_idx = landmark_idx + self.num_agents
             agent_indices_to_landmark_index = jnp.full(
-                (self.num_agents,), jnp.nan, dtype=jnp.int32
+                (self.num_agents,), SENTINEL, dtype=jnp.int32
             )
             agent_indices_to_landmark_index = agent_indices_to_landmark_index.at[
                 agent_idx
@@ -783,7 +783,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
 
             landmark_idx = landmark_idx + self.num_agents
             agent_indices_to_landmark_index = jnp.full(
-                (self.num_agents,), jnp.nan, dtype=jnp.int32
+                (self.num_agents,), SENTINEL, dtype=jnp.int32
             )
             agent_indices_to_landmark_index = agent_indices_to_landmark_index.at[
                 agent_idx
@@ -861,16 +861,6 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             agent_label: dones[i] for i, agent_label in enumerate(self.agent_labels)
         }
         dones_with_agent_label.update({"__all__": jnp.all(dones)})
-
-        jax.tree.map(partial(breakpoint_if_nonfinite, name="observation"), observation)
-        jax.tree.map(partial(breakpoint_if_nonfinite, name="graph"), graph)
-        jax.tree.map(partial(breakpoint_if_nonfinite, name="state"), state)
-        jax.tree.map(partial(breakpoint_if_nonfinite, name="reward"), reward)
-        jax.tree.map(
-            partial(breakpoint_if_nonfinite, name="dones_with_agent_label"),
-            dones_with_agent_label,
-        )
-
         return (
             observation,
             graph,
@@ -1020,14 +1010,3 @@ class CoverageMPEEnvironment(MultiAgentEnv):
         ) * (action != 0)
         u = u.at[action_to_coordinate_axis].set(u_val)
         return u
-
-
-def breakpoint_if_nonfinite(x, name: str):
-    is_finite = jnp.isfinite(x).all()
-
-    jax.lax.cond(
-        is_finite,
-        lambda _: None,  # Do nothing if values are finite
-        lambda _: jax.debug.print("{} is not finite", name),  # Print only if non-finite
-        operand=None,
-    )

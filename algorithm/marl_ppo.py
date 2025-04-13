@@ -18,6 +18,7 @@ from beartype import beartype
 from flax.training import orbax_utils
 from flax.training.train_state import TrainState
 from jax import block_until_ready
+from jax.experimental import checkify
 from jaxtyping import Array, Float, jaxtyped
 
 import envs
@@ -546,6 +547,26 @@ def _env_step(
     )(
         *env_input,
     )
+
+    # # debug
+    # jax.debug.print(
+    #     "is observation finite? {}",
+    #     jnp.all(jnp.stack([jnp.isfinite(x).all() for x in jax.tree.leaves(obs_v)])),
+    # )
+    # jax.debug.print(
+    #     "is graph finite? {}",
+    #     jnp.all(jnp.stack([jnp.isfinite(x).all() for x in jax.tree.leaves(graph_v)])),
+    # )
+    # # jax.debug.print("is state finite? {}", jnp.isfinite(log_env_state).all())
+    # jax.debug.print(
+    #     "is reward finite? {}",
+    #     jnp.all(jnp.stack([jnp.isfinite(x).all() for x in jax.tree.leaves(reward)])),
+    # )
+    # jax.debug.print(
+    #     "is dones_with_agent_label finite? {}",
+    #     jnp.all(jnp.stack([jnp.isfinite(x).all() for x in jax.tree.leaves(done)])),
+    # )
+
     info = jax.tree.map(lambda x: x.reshape(config.derived_values.num_actors), info)
     done_batch = batchify(
         done, env.agent_labels, config.derived_values.num_actors
@@ -889,6 +910,8 @@ def ppo_single_update(
     metric["loss"] = loss_info
     rng = update_state.rng_keys
 
+    print_if_nonfinite(traj_batch)
+
     def callback(metric):
         out = metric["actor_network"]
         progress = round(
@@ -1102,9 +1125,17 @@ def main():
         name=f"{timestamp}_{config.env_config.env_kwargs.assignment_strategy}",
     )
     rng = jax.random.PRNGKey(config.training_config.seed)
+
+    disable_checkify = False
+
     with jax.disable_jit(False):
         train_jit = jax.jit(make_train(config))
-        out = train_jit(rng)
+        if not disable_checkify:
+            train_jit = checkify.checkify(train_jit, errors=checkify.all_checks)
+            err, out = train_jit(rng)
+            err.throw()
+        else:
+            out = train_jit(rng)
         block_until_ready(out)
         jax.effects_barrier()
 
@@ -1131,6 +1162,23 @@ def main():
         wandb.log_artifact(model_artifact)
 
     wandb.finish()
+
+
+def print_if_nonfinite(x):
+    is_finite = jnp.all(jnp.stack([jnp.isfinite(x).all() for x in jax.tree.leaves(x)]))
+
+    def true_fn(x):
+        pass
+
+    def false_fn(x):
+        jax.tree.map_with_path(
+            lambda path, x: jax.debug.print(
+                "{}: {}", jax.tree_util.keystr(path), jnp.isfinite(x).all()
+            ),
+            x,
+        )
+
+    jax.lax.cond(is_finite, true_fn, false_fn, x)
 
 
 if __name__ == "__main__":
