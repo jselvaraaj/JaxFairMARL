@@ -127,8 +127,8 @@ class NetworkConfig(NamedTuple):
 
 
 class WandbConfig(NamedTuple):
-    entity: str = "jasminejerryaloor"
-    project: str = "JaxInforMARL"
+    entity: str = "marl"
+    project: str = "JaxFairMARL"
     mode: Literal["online", "offline", "disabled"] = "disabled"
     save_model: bool = False
     checkpoint_model_every_update_steps: float = 1e2
