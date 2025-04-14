@@ -831,9 +831,17 @@ class CoverageMPEEnvironment(MultiAgentEnv):
 
         key, key_double_integrator = jax.random.split(key)
 
-        agent_indices_to_landmark_index, landmark_to_closest_agent_dist = (
-            self.get_assignment(key, state)
-        )
+        if self.assignment_strategy != AssignmentStrategy.RANDOM.value:
+            agent_indices_to_landmark_index, landmark_to_closest_agent_dist = (
+                self.get_assignment(key, state)
+            )
+        else:
+            # Random assignment is made only once per episode in the reset function
+            agent_indices_to_landmark_index, landmark_to_closest_agent_dist = (
+                state.agent_indices_to_landmark_index,
+                state.landmark_occupancy,
+            )
+
         checkify.debug_check(
             (agent_indices_to_landmark_index != SENTINEL).all(),
             "agent_indices_to_landmark_index is used before it is initialized {i}",
