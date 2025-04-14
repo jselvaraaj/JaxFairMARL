@@ -1119,6 +1119,7 @@ def experiment_with_single_seed(seed: int, config: MAPPOConfig, timestamp: str):
         config=dict_config,
         group=f"experiment_{timestamp}",
         name=f"seed_{seed}",
+        reinit=True,
     )
 
     rng = jax.random.key(seed)
