@@ -10,6 +10,7 @@ from typing import Any, NamedTuple, cast
 import distrax
 import jax
 import jax.numpy as jnp
+import jax.sharding as sharding
 import numpy as np
 import optax
 import orbax
@@ -910,7 +911,8 @@ def ppo_single_update(
     metric["loss"] = loss_info
     rng = update_state.rng_keys
 
-    print_if_nonfinite(traj_batch)
+    # Always prints traj_batch when this function is vmaped which we are doing for multiple seeds.
+    # print_if_nonfinite(traj_batch)
 
     def callback(metric):
         out = metric["actor_network"]
@@ -1111,63 +1113,91 @@ def make_train(config: MAPPOConfig):
 def main():
 
     # Create timestamp string
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().strftime("%b-%d-%Y_%H-%M-%S")
     config: MAPPOConfig = MAPPOConfig.create()
     assert (
         config.training_config.num_envs > 1
     ), "Number of environments must be greater than 1 for training"
     dict_config = config_to_dict(config)
-    wandb.init(
-        entity=config.wandb_config.entity,
-        project=config.wandb_config.project,
-        mode=config.wandb_config.mode,
-        config=dict_config,
-        name=f"{timestamp}_{config.env_config.env_kwargs.assignment_strategy}",
-    )
-    rng = jax.random.PRNGKey(config.training_config.seed)
+    if config.training_config.seed is None:
+        seeds = jnp.arange(config.training_config.num_seeds)
+    else:
+        seeds = jnp.asarray(config.training_config.seed)
+
+    num_devices = jax.device_count()
+
+    if seeds.size > num_devices:
+        print(
+            f"Number of seeds ({seeds.size}) is greater than the number of devices ({num_devices}). Using only the first {num_devices} seeds."
+        )
+        seeds = seeds[:num_devices]
+
+    train = make_train(config)
+
+    def experiment_with_single_seed(seed):
+
+        def init_wandb():
+            wandb.init(
+                entity=config.wandb_config.entity,
+                project=config.wandb_config.project,
+                mode=config.wandb_config.mode,
+                config=dict_config,
+                group=f"experiment_{timestamp}",
+                name=f"seed_{seed}",
+            )
+
+        def save_model(out, seed):
+            if config.wandb_config.save_model:
+                runner_state: UpdateStepRunnerState = out["runner_state"]
+                out = {
+                    "actor_train_params": runner_state.update_step_runner_state.network_train_states.actor_train_state.params,
+                    # "critic_train_state": out["runner_state"][0][0][1].params,
+                }
+                model_artifact = wandb.Artifact(
+                    "PPO_RNN_Runner_State", type="model", metadata=dict_config
+                )
+                running_script_path = os.path.abspath(".")
+                checkpoint_dir = os.path.join(
+                    running_script_path,
+                    f"saved_actor/experiment_{timestamp}_seed_{seed}/PPO_Runner_Checkpoint_final",
+                )
+                orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
+                save_args = orbax_utils.save_args_from_target(out)
+                orbax_checkpointer.save(checkpoint_dir, out, save_args=save_args)
+                model_artifact.add_dir(checkpoint_dir)
+                wandb.log_artifact(model_artifact)
+            wandb.finish()
+
+        jax.experimental.io_callback(init_wandb, None)
+        rng = jax.random.key(seed)
+        output = train(rng)
+        jax.experimental.io_callback(save_model, None, output, seed)
+
+        return output
+
+    experiments = jax.vmap(experiment_with_single_seed)
 
     disable_checkify = False
 
+    mesh = jax.make_mesh((jax.device_count(),), ("x",))
+    shard = sharding.NamedSharding(mesh, sharding.PartitionSpec("x"))
+    seeds = jax.device_put(seeds, shard)
+
     with jax.disable_jit(False):
-        train_jit = jax.jit(make_train(config))
+        experiments_jit = jax.jit(experiments)
         if not disable_checkify:
-            train_jit = checkify.checkify(
-                train_jit, errors=checkify.float_checks | checkify.user_checks
+            experiments_jit = checkify.checkify(
+                experiments_jit, errors=checkify.float_checks | checkify.user_checks
             )
-            err, out = train_jit(rng)
+            err, out = experiments_jit(seeds)
 
         else:
-            out = train_jit(rng)
+            out = experiments_jit(seeds)
         block_until_ready(out)
-
-    runner_state: UpdateStepRunnerState = out["runner_state"]
-    out = {
-        "actor_train_params": runner_state.update_step_runner_state.network_train_states.actor_train_state.params,
-        # "critic_train_state": out["runner_state"][0][0][1].params,
-    }
-
-    if config.wandb_config.save_model:
-        model_artifact = wandb.Artifact(
-            "PPO_RNN_Runner_State", type="model", metadata=dict_config
-        )
-        running_script_path = os.path.abspath(".")
-        checkpoint_dir = os.path.join(
-            running_script_path,
-            f"saved_actor/{wandb.run.name}/PPO_Runner_Checkpoint_final",
-        )
-        orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
-        save_args = orbax_utils.save_args_from_target(out)
-        orbax_checkpointer.save(checkpoint_dir, out, save_args=save_args)
-        model_artifact.add_dir(checkpoint_dir)
-
-        wandb.log_artifact(model_artifact)
-
     # throw after saving model
     if disable_checkify:
         err.throw()
     jax.effects_barrier()
-
-    wandb.finish()
 
 
 def print_if_nonfinite(x):
@@ -1185,10 +1215,3 @@ def print_if_nonfinite(x):
         )
 
     jax.lax.cond(is_finite, true_fn, false_fn, x)
-
-
-if __name__ == "__main__":
-    import jax
-
-    # jax.config.update("jax_debug_nans", True)
-    main()

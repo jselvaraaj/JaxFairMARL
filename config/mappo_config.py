@@ -86,8 +86,10 @@ class TrainingConfig(NamedTuple):
         gamma: discount factor.
     """
 
-    seed: int = 1
-    num_seeds: int = 2
+    seed: None | int | list[int] = (
+        None  # None means auto-generate seed based on arange(num_seeds)
+    )
+    num_seeds: int = 2  # if seed is provided as a list, this will be ignored
     lr: float = 5e-4
     anneal_lr: bool = True
     num_envs: int = 2
