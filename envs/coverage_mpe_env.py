@@ -60,7 +60,7 @@ class MPEState(NamedTuple):
     entity_positions: Float[Array, f"{EntityIndexAxis} {CoordinateAxisIndexAxis}"]
     entity_velocities: Float[Array, f"{EntityIndexAxis} {CoordinateAxisIndexAxis}"]
     agent_indices_to_landmark_index: Int[Array, f"{AgentIndexAxis}"]
-    landmark_occupancy: Float[Array, f"{LandmarkIndexAxis}"]
+    entity_occupancy: Float[Array, f"{EntityIndexAxis}"]
     closest_landmark_idx: Int[Array, f"{EntityIndexAxis}"]
     distance_travelled: Float[Array, f"{AgentIndexAxis}"]
     did_agent_die_this_time_step: Float[Array, f"{AgentIndexAxis}"]
@@ -331,7 +331,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             entity_positions=entity_positions,
             entity_velocities=jnp.zeros((self.num_entities, self.position_dim)),
             agent_indices_to_landmark_index=jnp.full(self.num_agents, SENTINEL),
-            landmark_occupancy=jnp.full(self.num_landmarks, SENTINEL),
+            entity_occupancy=jnp.full(self.num_entities, SENTINEL),
             closest_landmark_idx=jnp.full(self.num_entities, SENTINEL),
             distance_travelled=jnp.zeros(self.num_agents),
             dones=jnp.full(self.num_agents, False),
@@ -340,7 +340,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             agent_communication_message=initial_agent_communication_message,
             agent_visibility_radius=agent_visibility_radius,
         )
-        agent_indices_to_landmark_index, landmark_occupancy = self.get_assignment(
+        agent_indices_to_landmark_index, entity_occupancy = self.get_assignment(
             key, state
         )
         checkify.debug_check(
@@ -349,13 +349,13 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             i=agent_indices_to_landmark_index,
         )
         checkify.debug_check(
-            (landmark_occupancy != SENTINEL).all(),
-            "landmark_occupancy is used before it is initialized {i}",
-            i=landmark_occupancy,
+            (entity_occupancy != SENTINEL).all(),
+            "entity_occupancy is used before it is initialized {i}",
+            i=entity_occupancy,
         )
         state = state._replace(
             agent_indices_to_landmark_index=agent_indices_to_landmark_index,
-            landmark_occupancy=landmark_occupancy,
+            entity_occupancy=entity_occupancy,
         )
         obs, state = self.get_observation(state)
         checkify.debug_check(
@@ -392,28 +392,32 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             Int[Array, f"{AgentIndexAxis}"],
         ]:
             """Return observation for agent i."""
-            dist_matrix = compute_distance(agent_idx, self.landmark_indices)
+            dist_matrix = compute_distance(agent_idx, self.entity_indices)
 
-            # TODO: check if all landmark_occupancy can be 1
+            # TODO: check if all entity_occupancy can be 1
 
             unoccupied_dist_matrix = jnp.where(
-                state.landmark_occupancy == 1, jnp.inf, dist_matrix
+                state.entity_occupancy == 1, jnp.inf, dist_matrix
             )
 
             first_landmark_idx = jnp.argmin(unoccupied_dist_matrix, axis=0)
+            # Make them landmark indices don't point to agents
+            first_landmark_idx = jnp.where(
+                first_landmark_idx < self.num_agents,
+                first_landmark_idx + self.num_agents,
+                first_landmark_idx,
+            )
             dist_matrix = dist_matrix.at[first_landmark_idx].set(jnp.inf)
             second_landmark_idx = jnp.argmin(dist_matrix, axis=0)
+            # Make them landmark indices don't point to agents
+            second_landmark_idx = jnp.where(
+                second_landmark_idx < self.num_agents,
+                second_landmark_idx + self.num_agents,
+                second_landmark_idx,
+            )
 
-            # Make them entity indices
-            # first_landmark_idx = first_landmark_idx + self.num_agents
-            # second_landmark_idx = second_landmark_idx + self.num_agents
-
-            first_landmark_position = state.entity_positions[
-                first_landmark_idx + self.num_agents
-            ]
-            second_landmark_position = state.entity_positions[
-                second_landmark_idx + self.num_agents
-            ]
+            first_landmark_position = state.entity_positions[first_landmark_idx]
+            second_landmark_position = state.entity_positions[second_landmark_idx]
             agent_position = state.entity_positions[agent_idx]
             agent_velocity = state.entity_velocities[agent_idx]
             first_landmark_relative_position = first_landmark_position - agent_position
@@ -427,8 +431,8 @@ class CoverageMPEEnvironment(MultiAgentEnv):
                         agent_velocity.flatten(),
                         first_landmark_relative_position.flatten(),
                         second_landmark_relative_position.flatten(),
-                        jnp.repeat(state.landmark_occupancy[first_landmark_idx], 2),
-                        jnp.repeat(state.landmark_occupancy[second_landmark_idx], 2),
+                        jnp.repeat(state.entity_occupancy[first_landmark_idx], 2),
+                        jnp.repeat(state.entity_occupancy[second_landmark_idx], 2),
                     ]
                 ),
                 first_landmark_idx,
@@ -438,7 +442,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
 
         # There's closest landmark for every entity, including landmarks. For landmarks, the closest landmark is itself.
         closest_landmark_idx = jnp.concatenate(
-            [closest_landmark_idx, jnp.arange(self.num_landmarks)]
+            [closest_landmark_idx, self.landmark_indices]
         )
 
         state = state._replace(closest_landmark_idx=closest_landmark_idx)
@@ -489,11 +493,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
                 state.agent_indices_to_landmark_index[entity_idx],
                 entity_idx,
             )
-            landmark_occupancy = jnp.where(
-                entity_idx < self.num_agents,
-                state.landmark_occupancy[goal_idx][None],
-                jnp.asarray([1]),
-            )
+            entity_occupancy = state.entity_occupancy[goal_idx][None]
 
             goal_relative_coord = jnp.asarray([])
             if self.add_target_goal_to_nodes:
@@ -521,7 +521,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             non_equivariant_node_features = jnp.concatenate(
                 [
                     node_communication_message,
-                    landmark_occupancy,
+                    entity_occupancy,
                     jnp.asarray([entity_type]),
                 ]
             )
@@ -757,7 +757,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
 
     def get_assignment(self, key: PRNGKey, state: MPEState) -> tuple[
         Int[Array, f"{AgentIndexAxis}"],
-        Float[Array, f"{LandmarkIndexAxis}"],
+        Float[Array, f"{EntityIndexAxis}"],
     ]:
         @partial(jax.vmap, in_axes=(None, 0))
         @partial(jax.vmap, in_axes=(0, None))
@@ -812,7 +812,13 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             )
             / state.agent_visibility_radius
         )
-        return agent_indices_to_landmark_index, landmark_to_closest_agent_dist
+        entity_occupancy = jnp.concatenate(
+            [jnp.ones(self.num_agents), landmark_to_closest_agent_dist]
+        )
+        return (
+            agent_indices_to_landmark_index,
+            entity_occupancy,
+        )
 
     def _step(
         self,
@@ -832,14 +838,14 @@ class CoverageMPEEnvironment(MultiAgentEnv):
         key, key_double_integrator = jax.random.split(key)
 
         if self.assignment_strategy != AssignmentStrategy.RANDOM.value:
-            agent_indices_to_landmark_index, landmark_to_closest_agent_dist = (
-                self.get_assignment(key, state)
+            agent_indices_to_landmark_index, entity_occupancy = self.get_assignment(
+                key, state
             )
         else:
             # Random assignment is made only once per episode in the reset function
-            agent_indices_to_landmark_index, landmark_to_closest_agent_dist = (
+            agent_indices_to_landmark_index, entity_occupancy = (
                 state.agent_indices_to_landmark_index,
-                state.landmark_occupancy,
+                state.entity_occupancy,
             )
 
         checkify.debug_check(
@@ -848,9 +854,9 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             i=agent_indices_to_landmark_index,
         )
         checkify.debug_check(
-            (landmark_to_closest_agent_dist != SENTINEL).all(),
-            "landmark_occupancy is used before it is initialized {i}",
-            i=landmark_to_closest_agent_dist,
+            (entity_occupancy != SENTINEL).all(),
+            "entity_occupancy is used before it is initialized {i}",
+            i=entity_occupancy,
         )
 
         # death masking
@@ -899,7 +905,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
         state = MPEState(
             entity_positions=entity_positions,
             entity_velocities=entity_velocities,
-            landmark_occupancy=landmark_to_closest_agent_dist,
+            entity_occupancy=entity_occupancy,
             agent_indices_to_landmark_index=agent_indices_to_landmark_index,
             closest_landmark_idx=state.closest_landmark_idx,
             distance_travelled=total_distance_travelled,
