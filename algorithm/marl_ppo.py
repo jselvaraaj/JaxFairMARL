@@ -10,7 +10,6 @@ from typing import Any, NamedTuple, cast
 import distrax
 import jax
 import jax.numpy as jnp
-import jax.sharding as sharding
 import numpy as np
 import optax
 import orbax
@@ -1124,13 +1123,13 @@ def main():
     else:
         seeds = jnp.asarray(config.training_config.seed)
 
-    num_devices = jax.device_count()
+    num_devices = 1  # jax.device_count()
 
-    if seeds.size > num_devices:
-        print(
-            f"Number of seeds ({seeds.size}) is greater than the number of devices ({num_devices}). Using only the first {num_devices} seeds."
-        )
-        seeds = seeds[:num_devices]
+    # if seeds.size > num_devices:
+    #     print(
+    #         f"Number of seeds ({seeds.size}) is greater than the number of devices ({num_devices}). Using only the first {num_devices} seeds."
+    #     )
+    seeds = seeds[:num_devices]
 
     train = make_train(config)
 
@@ -1176,13 +1175,13 @@ def main():
 
         return output
 
-    experiments = jax.pmap(experiment_with_single_seed)
+    experiments = jax.vmap(experiment_with_single_seed)
 
     disable_checkify = False
 
-    mesh = jax.make_mesh((jax.device_count(),), ("x",))
-    shard = sharding.NamedSharding(mesh, sharding.PartitionSpec("x"))
-    seeds = jax.device_put(seeds, shard)
+    # mesh = jax.make_mesh((jax.device_count(),), ("x",))
+    # shard = sharding.NamedSharding(mesh, sharding.PartitionSpec("x"))
+    # seeds = jax.device_put(seeds, shard)
 
     with jax.disable_jit(False):
         # experiments = jax.jit(experiments)
