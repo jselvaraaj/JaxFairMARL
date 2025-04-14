@@ -486,7 +486,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
         ]:
             goal_idx = jnp.where(
                 entity_idx < self.num_agents,
-                state.closest_landmark_idx[entity_idx],
+                state.agent_indices_to_landmark_index[entity_idx],
                 entity_idx,
             )
             landmark_occupancy = jnp.where(
