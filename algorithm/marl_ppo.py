@@ -1136,7 +1136,7 @@ def main():
 
     def experiment_with_single_seed(seed):
 
-        def init_wandb():
+        def init_wandb(seed):
             wandb.init(
                 entity=config.wandb_config.entity,
                 project=config.wandb_config.project,
@@ -1146,7 +1146,8 @@ def main():
                 name=f"seed_{seed}",
             )
 
-        def save_model(out, seed):
+        def save_model(args):
+            out, seed = args
             if config.wandb_config.save_model:
                 runner_state: UpdateStepRunnerState = out["runner_state"]
                 out = {
@@ -1168,10 +1169,10 @@ def main():
                 wandb.log_artifact(model_artifact)
             wandb.finish()
 
-        jax.experimental.io_callback(init_wandb, None)
+        jax.experimental.io_callback(init_wandb, None, seed)
         rng = jax.random.key(seed)
         output = train(rng)
-        jax.experimental.io_callback(save_model, None, output, seed)
+        jax.experimental.io_callback(save_model, None, (output, seed))
 
         return output
 
