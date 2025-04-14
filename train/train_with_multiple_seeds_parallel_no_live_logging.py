@@ -43,12 +43,8 @@ def callback(bulk_metric, num_steps, config):
             orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
             save_args = orbax_utils.save_args_from_target(out)
             orbax_checkpointer.save(checkpoint_dir, out, save_args=save_args)
-            if config.wandb_config.live_logging:
-                model_artifact.add_dir(checkpoint_dir)
-                wandb.log_artifact(model_artifact)
-        # print(
-        #     f"Logging update step: {update_steps}/{config.derived_values.num_updates}"
-        # )
+            model_artifact.add_dir(checkpoint_dir)
+            wandb.log_artifact(model_artifact)
         wandb.log(
             {
                 "returns": metric["returned_episode_returns"][-1, :].mean(),

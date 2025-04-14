@@ -1027,7 +1027,7 @@ def experiment_with_single_seed(seed: int, config: MAPPOConfig, timestamp: str):
             mode=config.wandb_config.mode,
             config=dict_config,
             group=f"experiment_{timestamp}",
-            name=f"seed_{seed}",
+            name=f"experiment_{timestamp}_seed_{seed}",
             reinit=True,
         )
 
