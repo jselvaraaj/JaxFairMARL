@@ -152,6 +152,7 @@ class MAPPOConfig(NamedTuple):
     wandb_config: WandbConfig
     derived_values: DerivedValues
     disable_checkify: bool = True
+    SPMD: bool = False
 
     @classmethod
     def create(

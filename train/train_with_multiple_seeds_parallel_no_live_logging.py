@@ -4,6 +4,7 @@ from functools import partial
 
 import jax
 import jax.numpy as jnp
+import jax.sharding as sharding
 import orbax
 import wandb
 from flax.training import orbax_utils
@@ -60,6 +61,8 @@ def callback(bulk_metric, num_steps, config):
 
 
 if __name__ == "__main__":
+    jax.config.update("jax_threefry_partitionable", True)
+
     timestamp = datetime.now().strftime("%b-%d-%Y_%H-%M-%S")
     config: MAPPOConfig = MAPPOConfig.create()
     assert (
@@ -74,7 +77,13 @@ if __name__ == "__main__":
         not config.wandb_config.live_logging
     ), "Live logging must be disabled for parallel training"
 
-    out_v = jax.jit(jax.vmap(partial(main, timestamp=timestamp)))(jnp.asarray(seeds))
+    j_seeds = jnp.asarray(seeds)
+    if config.SPMD:
+        mesh = jax.make_mesh((jax.device_count(),), ("x",))
+        shard = sharding.NamedSharding(mesh, sharding.PartitionSpec("x"))
+        j_seeds = jax.device_put(j_seeds, shard)
+
+    out_v = jax.jit(jax.vmap(partial(main, timestamp=timestamp)))(j_seeds)
     jax.block_until_ready(out_v)
     jax.effects_barrier()
 
