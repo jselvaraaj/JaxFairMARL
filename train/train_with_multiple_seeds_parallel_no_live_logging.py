@@ -90,7 +90,7 @@ if __name__ == "__main__":
             mode=config.wandb_config.mode,
             config=dict_config,
             group=f"experiment_{timestamp}",
-            name=f"seed_{seed}",
+            name=f"experiment_{timestamp}_seed_{seed}",
             reinit=True,
         )
         callback(out_by_seed["metric"], config.derived_values.num_updates, config)
