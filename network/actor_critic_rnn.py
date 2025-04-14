@@ -6,6 +6,7 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import jraph
+from einshape import jax_einshape as einshape
 from flax.linen.initializers import constant, orthogonal
 from jaxtyping import Array, Float
 from jraph._src import utils
@@ -40,82 +41,10 @@ class ScannedRNN(nn.Module):
         return cell.initialize_carry(jax.random.PRNGKey(0), (batch_size, hidden_size))
 
 
-class EmbeddingDerivativeNet(nn.Module):
-    config: MAPPOConfig
-
-    @nn.compact
-    def __call__(self, y):
-        output_dim = y.shape[-1]
-        for _ in range(self.config.network_config.neural_ode_num_layers):
-            y = nn.Dense(
-                output_dim,
-                kernel_init=orthogonal(2),
-                bias_init=constant(0.0),
-            )(y)
-            y = nn.relu(y)
-
-        return y
-
-
-# class NeuralODE(PyTreeNode):
-#     derivative_net: nn.Module
-#
-#     def init(self, rng, coords):
-#         rng, derivative_net_rng = jax.random.split(rng)
-#         coords, derivative_net_params = self.derivative_net.init_with_output(derivative_net_rng, coords)
-#
-#         return {
-#             "derivative_net": derivative_net_params,
-#         }
-#
-#     def apply(self, params, y0):
-#         def f(t, y, args):
-#             return self.derivative_net.apply(params["derivative_net"], y)
-#
-#         term = diffrax.ODETerm(f)
-#         solver = diffrax.Tsit5()
-#         solution = diffrax.diffeqsolve(term, solver, t0=0, t1=1, dt0=0.1, y0=y0,
-#                                        saveat=diffrax.SaveAt(t1=True, ts=jnp.asarray([0.2, 0.4, 0.6, 0.8])))
-#         yn = solution.ys
-#         return yn
-
-
-class DiscreteNeuralODEScannedRNNCell(nn.Module):
-    config: MAPPOConfig
-
-    @functools.partial(
-        nn.scan,
-        variable_broadcast="params",
-        in_axes=0,
-        out_axes=0,
-        split_rngs={"params": False},
-        length=MAPPOConfig.create().network_config.neural_ODE_config.steps,
-    )
-    @nn.compact
-    def __call__(self, state, unused):
-        dy = EmbeddingDerivativeNet(self.config)(state)
-        new_state = state + self.config.network_config.neural_ODE_config.dt * dy
-        return new_state, new_state
-
-
-class DiscreteNeuralODE(nn.Module):
-    config: MAPPOConfig
-
-    @nn.compact
-    def __call__(self, y0):
-        final_state, states = DiscreteNeuralODEScannedRNNCell(self.config)(y0, None)
-        # switches time, batch, features to batch, time, features
-        return states.swapaxes(0, 1)
-
-
 # noinspection DuplicatedCode
 class ActorRNN(nn.Module):
     action_dim: list[int]
     config: MAPPOConfig
-
-    # neural_ode: NeuralODE = NeuralODE(
-    #     derivative_net=EmbeddingDerivativeNet(MAPPOConfig.create()),
-    # )
 
     @nn.compact
     def __call__(self, hidden, x):
@@ -130,10 +59,6 @@ class ActorRNN(nn.Module):
         if self.config.network_config.use_rnn:
             rnn_in = (embedding, dones)
             hidden, embedding = ScannedRNN()(hidden, rnn_in)
-
-        # ode_params = self.param('neural_ode',
-        #                         lambda rng: self.neural_ode.init(rng, jnp.zeros_like(embedding)))
-        # embedding = self.neural_ode.apply(ode_params, embedding)[-1]
 
         for _ in range(self.config.network_config.actor_num_hidden_linear_layer - 1):
             embedding = nn.Dense(
@@ -159,22 +84,6 @@ class ActorRNN(nn.Module):
         pi = distrax.Categorical(logits=action_logits)
 
         return hidden, pi
-
-
-class PathNet(nn.Module):
-
-    @nn.compact
-    def __call__(self, x):
-        x = x[..., -1, :]
-        # x = jnp.sum(x, axis=-2)
-        # x = x.swapaxes(-1, -2)
-        # x = nn.Dense(
-        #     1,
-        #     kernel_init=orthogonal(jnp.sqrt(2)),
-        #     bias_init=constant(0.0),
-        # )(x)
-        # x = nn.relu(x).squeeze(axis=-1)
-        return x
 
 
 # This is built off of the GAT implementation in jraph
@@ -255,9 +164,6 @@ class GraphMultiHeadAttentionLayer(nn.Module):
         else:
             nodes = jnp.concatenate(nodes_seg_sum_from_each_attn_head, axis=-1)
 
-        # nodes = PathNet()(nodes)
-        # nodes = DiscreteNeuralODE(self.config)(nodes)
-
         return graph._replace(nodes=nodes)
 
 
@@ -271,21 +177,32 @@ class GraphStackedMultiHeadAttention(nn.Module):
         # Make the given graph into jraph compatible format
         equivariant_nodes, _, edges, receivers, senders, _, n_node, n_edge, _ = graph
 
-        num_time_steps, num_actors, num_nodes, rolling_memory_dim, *node_feature_dim = (
-            equivariant_nodes.shape
-        )
+        (
+            num_env_steps,
+            num_actors,
+            num_nodes_in_one_graph,
+            num_time_steps_concatenated,
+            *node_feature_dim,
+        ) = equivariant_nodes.shape
         _, _, num_edges, edge_feature_dim = edges.shape
-        num_graph = num_time_steps * num_actors
+        # flattening the batch dimension. so one graph contains all the time steps for all the actors and edges will be the only source of information for which node is connected to which other node.
+        # That is, as long as there are no edges across these batch dimensions, this should be a safe operation.
+        num_graph = num_env_steps * num_actors
         nodes = equivariant_nodes.reshape(
-            (num_graph * num_nodes, rolling_memory_dim, *node_feature_dim)
+            (
+                num_graph * num_nodes_in_one_graph,
+                num_time_steps_concatenated,
+                *node_feature_dim,
+            )
         )
         edges = edges.reshape((num_graph * num_edges, edge_feature_dim))
 
-        index_offset = jnp.arange(num_graph).reshape(num_time_steps, num_actors)[
+        # because we are combining multiple graphs into one, we need to make sure that the node indices are unique for each of the original graph.
+        index_offset = jnp.arange(num_graph).reshape(num_env_steps, num_actors)[
             ..., None
         ]
-        receivers += index_offset * num_nodes
-        senders += index_offset * num_nodes
+        receivers += index_offset * num_nodes_in_one_graph
+        senders += index_offset * num_nodes_in_one_graph
         receivers = receivers.flatten()
         senders = senders.flatten()
         n_node = n_node.flatten()
@@ -301,21 +218,26 @@ class GraphStackedMultiHeadAttention(nn.Module):
             globals=None,
         )
 
+        # for now do non equivariant transformation and also concate the stacked node features
+        nodes = einshape("gtnf->g1(tnf)", nodes)
+
         for _ in range(self.config.network_config.num_graph_attn_layers - 1):
             graph = GraphMultiHeadAttentionLayer(self.config)(
                 graph, avg_multi_head=False
             )
-        graph = graph._replace(nodes=jnp.sum(graph.nodes, axis=-2)[..., None, :])
+            # sum over the equivariant features
+            graph = graph._replace(nodes=jnp.sum(graph.nodes, axis=-2)[..., None, :])
         # Average the multi-head attention for the last layer
         graph = GraphMultiHeadAttentionLayer(self.config)(graph, avg_multi_head=True)
 
         nodes, edges, receivers, senders, _, n_node, n_edge = graph
 
-        nodes = PathNet()(nodes[..., 0, :])
+        # take the last equivariant feature transformed feature. Note there's only right now.
+        nodes = nodes[..., -1, :]
 
         # note the other elements in the graph are still in jraph compatible format
         # but not reverting it back since won't be using it anymore
-        nodes = nodes.reshape(num_time_steps, num_actors, num_nodes, -1)
+        nodes = nodes.reshape(num_env_steps, num_actors, num_nodes_in_one_graph, -1)
         graph = graph._replace(nodes=nodes)
         return graph
 
@@ -338,6 +260,9 @@ class GraphAttentionActorRNN(nn.Module):
             equivariant_nodes = graph.equivariant_nodes.reshape(
                 graph.equivariant_nodes.shape[:-2] + (-1,)
             )
+            # concate the equivariant features
+            equivariant_nodes = einshape("...tnf->...t(nf)", graph.equivariant_nodes)
+
             nodes = jnp.concatenate(
                 [equivariant_nodes, graph.non_equivariant_nodes], axis=-1
             )
@@ -348,7 +273,9 @@ class GraphAttentionActorRNN(nn.Module):
                 self.config.network_config.entity_type_embedding_dim,
             )(entity_type)
             nodes = jnp.concatenate([nodes[..., :-1], entity_emb], axis=-1)
-            nodes = PathNet()(nodes)
+
+            # concate the stacked observation
+            nodes = einshape("...tf->...(tf)", nodes)
 
         agent_node_features = nodes[
             jnp.arange(nodes.shape[0])[..., None],
@@ -366,10 +293,6 @@ class GraphAttentionActorRNN(nn.Module):
 class CriticRNN(nn.Module):
     config: MAPPOConfig
 
-    # neural_ode: NeuralODE = NeuralODE(
-    #     derivative_net=EmbeddingDerivativeNet(MAPPOConfig.create()),
-    # )
-
     @nn.compact
     def __call__(self, hidden, x):
         _w_s, graph, dones = x
@@ -380,6 +303,7 @@ class CriticRNN(nn.Module):
 
             num_agents = self.config.env_config.env_kwargs.num_agents
             num_entities = 2 * num_agents
+            # Full observatibility, agent can see all other agents and landmarks
             senders, receivers = jnp.meshgrid(
                 jnp.arange(num_entities), jnp.arange(num_agents)
             )
@@ -392,6 +316,7 @@ class CriticRNN(nn.Module):
                 receivers, graph.receivers.shape[:-1] + receivers.shape
             )
 
+            # Assume edge features are 0
             edges = jnp.zeros(graph.edges.shape[:-2] + (senders.shape[-1], 1))
 
             graph = graph._replace(senders=senders, receivers=receivers, edges=edges)
@@ -405,9 +330,8 @@ class CriticRNN(nn.Module):
                 agent_indices,
             ]
         else:
-            equivariant_nodes = graph.equivariant_nodes.reshape(
-                graph.equivariant_nodes.shape[:-2] + (-1,)
-            )
+            # concate the equivariant features
+            equivariant_nodes = einshape("...tnf->...t(nf)", graph.equivariant_nodes)
             nodes = jnp.concatenate(
                 [equivariant_nodes, graph.non_equivariant_nodes], axis=-1
             )
@@ -418,10 +342,13 @@ class CriticRNN(nn.Module):
                 self.config.network_config.entity_type_embedding_dim,
             )(entity_type)
             nodes = jnp.concatenate([nodes[..., :-1], entity_emb], axis=-1)
+
+            # concate the stacked observation
+            nodes = einshape("...tf->...(tf)", nodes)
+
             world_state = jnp.sum(
                 nodes, axis=2
             )  # Aggregate all node features for a given actor and time step
-            world_state = PathNet()(world_state)
 
         embedding = nn.Dense(
             self.config.network_config.fc_dim_size,
@@ -433,10 +360,6 @@ class CriticRNN(nn.Module):
         if self.config.network_config.use_rnn:
             rnn_in = (embedding, dones)
             hidden, embedding = ScannedRNN()(hidden, rnn_in)
-
-        # ode_params = self.param('neural_ode',
-        #                         lambda rng: self.neural_ode.init(rng, jnp.zeros_like(embedding)))
-        # embedding = self.neural_ode.apply(ode_params, embedding)[-1]
 
         for _ in range(self.config.network_config.critic_num_hidden_linear_layer - 1):
             embedding = nn.Dense(

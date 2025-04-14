@@ -98,13 +98,6 @@ class TrainingConfig(NamedTuple):
     ppo_config: PPOConfig = PPOConfig()
 
 
-class NeuralODEConfig(NamedTuple):
-    ode_hidden_dim: int = 8
-    ode_num_layers: int = 2
-    dt: float = 0.2
-    steps: int = 10
-
-
 class NetworkConfig(NamedTuple):
     use_rnn: bool = True
     use_graph_attention_in_actor: bool = True
@@ -124,8 +117,6 @@ class NetworkConfig(NamedTuple):
 
     graph_num_linear_layer: int = 2
     graph_hidden_feature_dim: int = 16
-
-    neural_ODE_config: NeuralODEConfig = NeuralODEConfig()
 
 
 class WandbConfig(NamedTuple):

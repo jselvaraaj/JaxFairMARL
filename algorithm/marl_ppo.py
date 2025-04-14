@@ -35,7 +35,7 @@ from envs.core.schema import (
     MultiAgentObservation,
     PRNGKey,
 )
-from envs.coverage_mpe_env import GraphsTupleWithAgentIndex, LinSpaceConfig
+from envs.coverage_mpe_env import GraphsTupleWithAgentIndex
 from envs.wrapper import LogEnvState, MPELogWrapper, MPEWorldStateWrapper
 from network.actor_critic_rnn import CriticRNN, GraphAttentionActorRNN, ScannedRNN
 
@@ -82,7 +82,7 @@ class TransitionWithActionField(NamedTuple):
     action_field: jnp.ndarray
 
 
-def batchify(x: dict, agent_list, num_actors):
+def batchify(x: dict, agent_list, num_actors: int):
     x = jnp.stack([x[a] for a in agent_list])
     return x.reshape(
         (
@@ -252,10 +252,10 @@ def get_actor_init_input(config: MAPPOConfig, env):
     ac_init_x = (
         jnp.zeros(
             (
-                1,
-                num_actors,
+                1,  # num_steps
+                num_actors,  # num_actors = num_envs * num_agents
                 env.observation_space_for_agent(env.agent_labels[0]).shape[0]
-                * agent_previous_obs_stack_size,
+                * agent_previous_obs_stack_size,  # num of last n observations that are concatenated together
             )
         ),
         graph_init,
@@ -342,8 +342,6 @@ class StaticVariables(NamedTuple):
     actor_network: GraphAttentionActorRNN
     critic_network: CriticRNN
     initial_communication_message: Float[Array, "..."]
-    is_running_in_viz_mode: bool
-    store_action_field: bool
 
 
 @jaxtyped(typechecker=beartype)
@@ -399,8 +397,6 @@ def _env_step(
         actor_network,
         critic_network,
         initial_communication_message,
-        is_running_in_viz_mode,
-        store_action_field,
     ) = env_step_static_variables
 
     num_env = config.training_config.num_envs
@@ -445,60 +441,6 @@ def _env_step(
             train_states.actor_train_state.params, h_states.actor_hidden_state, ac_in
         )
     )
-    action_field = jnp.asarray([])
-    if is_running_in_viz_mode and store_action_field:
-        rng, lin_space_rng = jax.random.split(rng)
-        lin_space_env_state = env.get_viz_states(
-            LinSpaceConfig(lin_range=(-10, 10), lin_step=0.4), log_env_state.env_state
-        )
-
-        @partial(jax.vmap)
-        def get_lin_spaced_data(state):
-            obs = jax.vmap(env.get_observation)(state)
-            graph = jax.vmap(env.get_graph)(state)
-
-            obs = batchify(obs, env.agent_labels, config.derived_values.num_actors)
-            graph = batchify_graph(graph, env.agent_labels_to_index)
-            dones_with_agent_label = {
-                agent_label: state.dones[:, i]
-                for i, agent_label in enumerate(env.agent_labels)
-            }
-            dones = batchify(
-                dones_with_agent_label,
-                env.agent_labels,
-                config.derived_values.num_actors,
-            ).squeeze()
-
-            return obs, graph, dones
-
-        @partial(jax.vmap, in_axes=(0, None, None, 0), out_axes=1)
-        def get_action_field_for_single_lin_space(
-            _rng, actor_params: dict, actor_h_state, ac_lin_in
-        ):
-            ac_lin_in = jax.tree.map(lambda x: x[None], ac_lin_in)
-
-            _, line_spaced_pi = actor_apply_cast(
-                actor_network.apply(
-                    actor_params,
-                    actor_h_state,
-                    ac_lin_in,
-                )
-            )
-            return line_spaced_pi.sample(seed=_rng).squeeze()
-
-        lin_spaced_ac_in = get_lin_spaced_data(lin_space_env_state)
-        lin_space_rng = jax.random.split(
-            lin_space_rng, num=lin_spaced_ac_in[-1].shape[0]
-        )
-        line_spaced_pi = get_action_field_for_single_lin_space(
-            lin_space_rng,
-            train_states.actor_train_state.params,
-            h_states.actor_hidden_state,
-            lin_spaced_ac_in,
-        )
-
-        action_field = line_spaced_pi
-
     action = pi.sample(seed=_rng)
 
     if communication_type == CommunicationType.CURRENT_ACTION.value:
@@ -547,25 +489,6 @@ def _env_step(
         *env_input,
     )
 
-    # # debug
-    # jax.debug.print(
-    #     "is observation finite? {}",
-    #     jnp.all(jnp.stack([jnp.isfinite(x).all() for x in jax.tree.leaves(obs_v)])),
-    # )
-    # jax.debug.print(
-    #     "is graph finite? {}",
-    #     jnp.all(jnp.stack([jnp.isfinite(x).all() for x in jax.tree.leaves(graph_v)])),
-    # )
-    # # jax.debug.print("is state finite? {}", jnp.isfinite(log_env_state).all())
-    # jax.debug.print(
-    #     "is reward finite? {}",
-    #     jnp.all(jnp.stack([jnp.isfinite(x).all() for x in jax.tree.leaves(reward)])),
-    # )
-    # jax.debug.print(
-    #     "is dones_with_agent_label finite? {}",
-    #     jnp.all(jnp.stack([jnp.isfinite(x).all() for x in jax.tree.leaves(done)])),
-    # )
-
     info = jax.tree.map(lambda x: x.reshape(config.derived_values.num_actors), info)
     done_batch = batchify(
         done, env.agent_labels, config.derived_values.num_actors
@@ -591,20 +514,7 @@ def _env_step(
         world_state,
         info,
     )
-    if is_running_in_viz_mode:
-        tiled_log_env_state = jax.tree.map(
-            lambda x: jnp.tile(x, (env.num_agents,) + (1,) * (x.ndim - 1)),
-            log_env_state,
-        )
-        transition = TransitionForVisualization(
-            *transition,
-            env_state=tiled_log_env_state,
-        )
-        if store_action_field:
-            transition = TransitionWithActionField(
-                *transition,
-                action_field=action_field,
-            )
+
     runner_state = EnvStepRunnerState(
         train_states,
         log_env_state,
@@ -626,7 +536,7 @@ def _update_epoch(
     update_state: UpdateEpochState,
     unused,
 ):
-    _, config, actor_network, critic_network, _, _, _ = update_epoch_static_variables
+    _, config, actor_network, critic_network, _ = update_epoch_static_variables
     ppo_config = config.training_config.ppo_config
 
     def _update_minibatch(train_states, batch_info):
@@ -801,8 +711,6 @@ def ppo_single_update(
         actor_network,
         critic_network,
         initial_communication_message,
-        is_running_in_viz_mode,
-        store_action_field,
     ) = static_variables
     ppo_config = config.training_config.ppo_config
     num_env = config.training_config.num_envs
@@ -820,8 +728,6 @@ def ppo_single_update(
             actor_network,
             critic_network,
             initial_communication_message,
-            is_running_in_viz_mode,
-            store_action_field,
         ),
     )
     runner_state, traj_batch = jax.lax.scan(
@@ -1094,8 +1000,6 @@ def make_train(config: MAPPOConfig):
             actor_network,
             critic_network,
             initial_communication_message_env_input,
-            False,
-            False,
         )
         ppo_single_update_with_static_args = partial(
             ppo_single_update, update_step_static_args
