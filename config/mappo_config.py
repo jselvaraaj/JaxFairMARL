@@ -150,6 +150,7 @@ class MAPPOConfig(NamedTuple):
     network_config: NetworkConfig
     wandb_config: WandbConfig
     derived_values: DerivedValues
+    disable_checkify: bool = False
 
     @classmethod
     def create(
