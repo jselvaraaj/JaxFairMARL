@@ -1147,7 +1147,7 @@ def main():
             )
 
         def save_model(args):
-            out, seed = args
+            out, inner_seed = args
             if config.wandb_config.save_model:
                 runner_state: UpdateStepRunnerState = out["runner_state"]
                 out = {
@@ -1160,7 +1160,7 @@ def main():
                 running_script_path = os.path.abspath(".")
                 checkpoint_dir = os.path.join(
                     running_script_path,
-                    f"saved_actor/experiment_{timestamp}_seed_{seed}/PPO_Runner_Checkpoint_final",
+                    f"saved_actor/experiment_{timestamp}_seed_{inner_seed}/PPO_Runner_Checkpoint_final",
                 )
                 orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
                 save_args = orbax_utils.save_args_from_target(out)
@@ -1176,7 +1176,7 @@ def main():
 
         return output
 
-    experiments = jax.vmap(experiment_with_single_seed)
+    experiments = jax.pmap(experiment_with_single_seed)
 
     disable_checkify = False
 
@@ -1185,15 +1185,15 @@ def main():
     seeds = jax.device_put(seeds, shard)
 
     with jax.disable_jit(False):
-        experiments_jit = jax.jit(experiments)
+        # experiments = jax.jit(experiments)
         if not disable_checkify:
-            experiments_jit = checkify.checkify(
-                experiments_jit, errors=checkify.float_checks | checkify.user_checks
+            experiments = checkify.checkify(
+                experiments, errors=checkify.float_checks | checkify.user_checks
             )
-            err, out = experiments_jit(seeds)
+            err, out = experiments(seeds)
 
         else:
-            out = experiments_jit(seeds)
+            out = experiments(seeds)
         block_until_ready(out)
     # throw after saving model
     if disable_checkify:
