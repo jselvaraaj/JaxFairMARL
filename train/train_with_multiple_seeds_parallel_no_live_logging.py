@@ -79,7 +79,10 @@ if __name__ == "__main__":
 
     j_seeds = jnp.asarray(seeds)
     if config.SPMD:
-        mesh = jax.make_mesh((jax.device_count(),), ("x",))
+        num_devices = jax.device_count()
+        print(f"Using {num_devices} seeds since SPMD is enabled")
+        j_seeds = j_seeds[:num_devices]
+        mesh = jax.make_mesh((num_devices,), ("x",))
         shard = sharding.NamedSharding(mesh, sharding.PartitionSpec("x"))
         j_seeds = jax.device_put(j_seeds, shard)
 
