@@ -14,6 +14,19 @@ from config.mappo_config import MAPPOConfig
 # )
 # jax.config.update("jax_logging_level", "DEBUG")
 
+
+def main(seed=0, timestamp=None):
+    """Run experiment with the given seed and timestamp."""
+    if timestamp is None:
+        timestamp = datetime.now().strftime("%b-%d-%Y_%H-%M-%S")
+
+    config: MAPPOConfig = MAPPOConfig.create()
+    assert (
+        config.training_config.num_envs > 1
+    ), "Number of environments must be greater than 1 for training"
+    experiment_with_single_seed(seed, config, timestamp)
+
+
 if __name__ == "__main__":
     default_timestamp = datetime.now().strftime("%b-%d-%Y_%H-%M-%S")
 
@@ -23,8 +36,4 @@ if __name__ == "__main__":
         "--timestamp", type=str, default=default_timestamp, help="Timestamp"
     )
     args = parser.parse_args()
-    config: MAPPOConfig = MAPPOConfig.create()
-    assert (
-        config.training_config.num_envs > 1
-    ), "Number of environments must be greater than 1 for training"
-    experiment_with_single_seed(args.seed, config, args.timestamp)
+    main(args.seed, args.timestamp)

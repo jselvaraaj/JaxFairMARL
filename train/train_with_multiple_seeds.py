@@ -11,6 +11,12 @@ from rich.table import Table
 
 from config.mappo_config import MAPPOConfig
 
+# Add the project root to Python path to fix module imports
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.abspath(os.path.join(script_dir, ".."))
+sys.path.insert(0, project_root)
+
+
 # Parse command line arguments for this script
 parser = argparse.ArgumentParser(
     description="Run multiple training processes with different seeds"
@@ -23,6 +29,11 @@ parser.add_argument(
     type=int,
     default=20,
     help="Maximum number of log lines to show per process",
+)
+parser.add_argument(
+    "--keep-logs",
+    action="store_true",
+    help="Keep log files even if all processes succeed",
 )
 args = parser.parse_args()
 
@@ -50,14 +61,20 @@ log_files = {}
 
 # Start all processes
 for seed in seeds:
-    cmd = [
-        sys.executable,
-        "train/train_with_single_seed.py",
-        "--seed",
-        str(seed),
-        "--timestamp",
-        timestamp,
-    ]
+    # Create Python script with proper imports as a string
+    python_code = f"""
+import os
+import sys
+
+# Set path to project root
+sys.path.insert(0, "{project_root}")
+
+# Import our modules now that path is set
+from train.train_with_single_seed import main
+
+# Run the experiment
+main(seed={seed}, timestamp="{timestamp}")
+"""
 
     # Create log file for this process
     log_path = os.path.join(log_dir, f"seed_{seed}.log")
@@ -66,7 +83,7 @@ for seed in seeds:
 
     # Start process with output capture
     process = subprocess.Popen(
-        cmd,
+        [sys.executable, "-c", python_code],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
@@ -127,5 +144,40 @@ with Live(generate_table(), refresh_per_second=2) as live:
 for log_file in log_files.values():
     log_file.close()
 
-console.print("[bold green]All training processes completed![/bold green]")
-console.print(f"Full logs available in directory: [bold cyan]{log_dir}[/bold cyan]")
+# Check if all processes completed successfully
+all_succeeded = True
+for seed, process in processes:
+    if process.returncode != 0:
+        all_succeeded = False
+        console.print(
+            f"[bold red]Process for seed {seed} failed with exit code {process.returncode}[/bold red]"
+        )
+
+# Delete log files if all processes succeeded and --keep-logs is not set
+if all_succeeded and not args.keep_logs:
+    console.print(
+        "[bold yellow]All processes succeeded, deleting log files...[/bold yellow]"
+    )
+    # Delete all log files
+    for seed in seeds:
+        log_path = os.path.join(log_dir, f"seed_{seed}.log")
+        try:
+            os.remove(log_path)
+        except Exception as e:
+            console.print(
+                f"[bold red]Failed to delete log file {log_path}: {e}[/bold red]"
+            )
+
+    # Delete log directory
+    try:
+        os.rmdir(log_dir)
+        console.print(
+            f"[bold green]Successfully deleted log directory: {log_dir}[/bold green]"
+        )
+    except Exception as e:
+        console.print(
+            f"[bold red]Failed to delete log directory {log_dir}: {e}[/bold red]"
+        )
+else:
+    console.print("[bold green]All training processes completed![/bold green]")
+    console.print(f"Full logs available in directory: [bold cyan]{log_dir}[/bold cyan]")
