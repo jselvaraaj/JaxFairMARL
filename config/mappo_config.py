@@ -89,12 +89,12 @@ class TrainingConfig(NamedTuple):
     seed: None | int | list[int] = (
         None  # None means auto-generate seed based on arange(num_seeds)
     )
-    num_seeds: int = 2  # if seed is provided as a list, this will be ignored
+    num_seeds: int = 4  # if seed is provided as a list, this will be ignored
     lr: float = 5e-4
     anneal_lr: bool = True
     num_envs: int = 2
     gamma: float = 0.99
-    total_timesteps: float = 1e1
+    total_timesteps: float = 1e2
     ppo_config: PPOConfig = PPOConfig()
 
 
@@ -134,6 +134,7 @@ class WandbConfig(NamedTuple):
     mode: Literal["online", "offline", "disabled"] = "disabled"
     save_model: bool = False
     checkpoint_model_every_update_steps: float = 1e2
+    live_logging: bool = False
 
 
 class DerivedValues(NamedTuple):
@@ -150,7 +151,7 @@ class MAPPOConfig(NamedTuple):
     network_config: NetworkConfig
     wandb_config: WandbConfig
     derived_values: DerivedValues
-    disable_checkify: bool = False
+    disable_checkify: bool = True
 
     @classmethod
     def create(

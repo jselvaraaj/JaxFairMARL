@@ -920,7 +920,8 @@ def ppo_single_update(
         )
         update_steps = metric["update_steps"]
         if (
-            config.wandb_config.save_model
+            config.wandb_config.live_logging
+            and config.wandb_config.save_model
             and update_steps % config.wandb_config.checkpoint_model_every_update_steps
             == 0
         ):
@@ -939,26 +940,28 @@ def ppo_single_update(
             orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
             save_args = orbax_utils.save_args_from_target(out)
             orbax_checkpointer.save(checkpoint_dir, out, save_args=save_args)
-            model_artifact.add_dir(checkpoint_dir)
-
-            wandb.log_artifact(model_artifact)
+            if config.wandb_config.live_logging:
+                model_artifact.add_dir(checkpoint_dir)
+                wandb.log_artifact(model_artifact)
         print(
             f"progress: {progress:.4f}% ; update step: {update_steps}/{config.derived_values.num_updates}"
         )
-        wandb.log(
-            {
-                "returns": metric["returned_episode_returns"][-1, :].mean(),
-                "env_step": update_steps
-                * config.training_config.num_envs
-                * ppo_config.num_steps_per_update,
-                **metric["loss"],
-            }
-        )
+        if config.wandb_config.live_logging:
+            wandb.log(
+                {
+                    "returns": metric["returned_episode_returns"][-1, :].mean(),
+                    "env_step": update_steps
+                    * config.training_config.num_envs
+                    * ppo_config.num_steps_per_update,
+                    **metric["loss"],
+                }
+            )
 
     metric["update_steps"] = update_steps
     metric["actor_network"] = {
         "actor_train_params": train_states.actor_train_state.params,
     }
+
     jax.experimental.io_callback(callback, None, metric)
     update_steps += 1
     actor_critic_train_states = ActorAndCriticTrainStates(*train_states)
@@ -1103,7 +1106,7 @@ def make_train(config: MAPPOConfig):
             None,
             config.derived_values.num_updates,
         )
-        return {"runner_state": runner_state}
+        return {"runner_state": runner_state, "metric": metric}
 
     return train
 
@@ -1111,16 +1114,18 @@ def make_train(config: MAPPOConfig):
 def experiment_with_single_seed(seed: int, config: MAPPOConfig, timestamp: str):
     train = make_train(config)
     dict_config = config_to_dict(config)
+    live_logging = config.wandb_config.live_logging
 
-    wandb.init(
-        entity=config.wandb_config.entity,
-        project=config.wandb_config.project,
-        mode=config.wandb_config.mode,
-        config=dict_config,
-        group=f"experiment_{timestamp}",
-        name=f"seed_{seed}",
-        reinit=True,
-    )
+    if live_logging:
+        wandb.init(
+            entity=config.wandb_config.entity,
+            project=config.wandb_config.project,
+            mode=config.wandb_config.mode,
+            config=dict_config,
+            group=f"experiment_{timestamp}",
+            name=f"seed_{seed}",
+            reinit=True,
+        )
 
     rng = jax.random.key(seed)
     with jax.disable_jit(False):
@@ -1136,7 +1141,7 @@ def experiment_with_single_seed(seed: int, config: MAPPOConfig, timestamp: str):
             out = train_jit(rng)
         block_until_ready(out)
 
-    if config.wandb_config.save_model:
+    if live_logging and config.wandb_config.save_model:
         runner_state: UpdateStepRunnerState = out["runner_state"]
         out = {
             "actor_train_params": runner_state.update_step_runner_state.network_train_states.actor_train_state.params,
@@ -1148,14 +1153,16 @@ def experiment_with_single_seed(seed: int, config: MAPPOConfig, timestamp: str):
         running_script_path = os.path.abspath(".")
         checkpoint_dir = os.path.join(
             running_script_path,
-            f"saved_actor/experiment_{timestamp}_seed_{seed}/PPO_Runner_Checkpoint_final",
+            f"saved_actor/{wandb.run.name}/PPO_Runner_Checkpoint_final",
         )
         orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
         save_args = orbax_utils.save_args_from_target(out)
         orbax_checkpointer.save(checkpoint_dir, out, save_args=save_args)
         model_artifact.add_dir(checkpoint_dir)
         wandb.log_artifact(model_artifact)
-    wandb.finish()
+
+    if live_logging:
+        wandb.finish()
 
     # throw after saving model
     if not config.disable_checkify:

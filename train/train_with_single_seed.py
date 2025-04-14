@@ -24,7 +24,7 @@ def main(seed=0, timestamp=None):
     assert (
         config.training_config.num_envs > 1
     ), "Number of environments must be greater than 1 for training"
-    experiment_with_single_seed(seed, config, timestamp)
+    return experiment_with_single_seed(seed, config, timestamp)
 
 
 if __name__ == "__main__":

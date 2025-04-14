@@ -13,5 +13,9 @@ if config.training_config.seed is None:
 else:
     seeds = list(config.training_config.seed)
 
+assert (
+    config.wandb_config.live_logging
+), "Live logging must be enabled for sequential training to see wandb logs"
+
 for seed in seeds:
     main(seed, timestamp)
