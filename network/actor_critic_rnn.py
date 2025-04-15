@@ -149,9 +149,26 @@ class GraphMultiHeadAttentionLayer(nn.Module):
             ) / jnp.sqrt(self.config.network_config.graph_attention_key_dim)
 
             # Compute the softmax weights on the entire tree.
+            """
+            Let's say we have the following graph:
+            - 6 nodes with indices [0, 1, 2, 3, 4, 5]
+            - following are the edges:
+                - 0 -> 1
+                - 0 -> 2
+                - 1 -> 3
+                - 1 -> 4
+                - 2 -> 5
+            - total number of possible edges = 6C2 = 15
+            - senders = [0, 0, 1, 1, 2] + [-1] * (15 - 5) # python list addition
+            - receivers = [1, 2, 3, 4, 5] + [-1] * (15 - 5) # python list addition
+            helpful resource: https://github.com/google-deepmind/educational/blob/master/colabs/summer_schools/intro_to_graph_nets_tutorial_with_jraph.ipynb
+            """
+            # softmax_logits.shape = (num_edges,) = (15,)
+            # in this case sum_n_node = num_nodes = 6
             weights = utils.segment_softmax(
                 softmax_logits, segment_ids=receivers, num_segments=sum_n_node
             )
+            # weights.shape = (num_edges,) = (15,)
             # Apply weights
             messages = weights[..., None] * sent_attributes
             # Aggregate messages to nodes.
