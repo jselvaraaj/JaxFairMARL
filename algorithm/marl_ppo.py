@@ -343,6 +343,7 @@ class StaticVariables(NamedTuple):
     actor_network: GraphAttentionActorRNN
     critic_network: CriticRNN
     initial_communication_message: Float[Array, "..."]
+    is_running_in_viz_mode: bool = False
 
 
 @jaxtyped(typechecker=beartype)
@@ -398,6 +399,7 @@ def _env_step(
         actor_network,
         critic_network,
         initial_communication_message,
+        is_running_in_viz_mode,
     ) = env_step_static_variables
 
     num_env = config.training_config.num_envs
@@ -515,6 +517,22 @@ def _env_step(
         world_state,
         info,
     )
+    if is_running_in_viz_mode:
+        transition = TransitionForVisualization(
+            jnp.tile(done["__all__"], env.num_agents),
+            last_done,
+            action.squeeze(),
+            value.squeeze(),
+            batchify(
+                reward, env.agent_labels, config.derived_values.num_actors
+            ).squeeze(),
+            log_prob.squeeze(),
+            obs_batch,
+            graph_batch,
+            world_state,
+            info,
+            log_env_state,
+        )
 
     runner_state = EnvStepRunnerState(
         train_states,
@@ -537,7 +555,7 @@ def _update_epoch(
     update_state: UpdateEpochState,
     unused,
 ):
-    _, config, actor_network, critic_network, _ = update_epoch_static_variables
+    _, config, actor_network, critic_network, _, _ = update_epoch_static_variables
     ppo_config = config.training_config.ppo_config
 
     def _update_minibatch(train_states, batch_info):
@@ -712,6 +730,7 @@ def ppo_single_update(
         actor_network,
         critic_network,
         initial_communication_message,
+        _,
     ) = static_variables
     ppo_config = config.training_config.ppo_config
     num_env = config.training_config.num_envs

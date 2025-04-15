@@ -34,6 +34,7 @@ class MPEStateWithBuffer(NamedTuple):
     distance_travelled: Float[Array, f"{AgentIndexAxis}"]
 
     did_agent_die_this_time_step: Float[Array, f"{AgentIndexAxis}"]
+    did_agent_die_last_time_step: Float[Array, f"{AgentIndexAxis}"]
     agent_communication_message: Float[Array, f"{AgentIndexAxis} ..."] | None
     agent_visibility_radius: Float[Array, f"{AgentIndexAxis}"]
     obs_buffer: MultiAgentObservation

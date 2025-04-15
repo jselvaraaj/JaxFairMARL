@@ -122,7 +122,6 @@ def get_state_traj(
     model_artifact_remote_name,
     artifact_version,
     initial_entity_position=None,
-    store_action_field=False,
     num_episodes=2,
 ) -> tuple[TransitionForVisualization, MAPPOConfig, MultiAgentEnv]:
     api = wandb.Api()
@@ -229,7 +228,6 @@ def get_state_traj(
             critic_network,
             initial_communication_message_env_input,
             is_running_in_viz_mode,
-            store_action_field,
         ),
     )
     runner_state, traj_batch = jax.lax.scan(
@@ -240,7 +238,7 @@ def get_state_traj(
 
 
 if __name__ == "__main__":
-    artifact_version = "11"
+    artifact_version = "145"
 
     model_artifact_remote_name = (
         f"marl/JaxFairMARL/PPO_RNN_Runner_State:v{artifact_version}"
