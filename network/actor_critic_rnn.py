@@ -12,6 +12,7 @@ from jaxtyping import Array, Float
 from jraph._src import utils
 
 from config.mappo_config import MAPPOConfig
+from utils.debug import print_if_nonfinite
 
 
 class ScannedRNN(nn.Module):
@@ -163,6 +164,8 @@ class GraphMultiHeadAttentionLayer(nn.Module):
             nodes = jnp.mean(jnp.stack(nodes_seg_sum_from_each_attn_head), axis=0)
         else:
             nodes = jnp.concatenate(nodes_seg_sum_from_each_attn_head, axis=-1)
+
+        print_if_nonfinite(nodes, "nodes")
 
         return graph._replace(nodes=nodes)
 
