@@ -38,6 +38,7 @@ from envs.core.schema import (
 from envs.coverage_mpe_env import GraphsTupleWithAgentIndex
 from envs.wrapper import LogEnvState, MPELogWrapper, MPEWorldStateWrapper
 from network.actor_critic_rnn import CriticRNN, GraphAttentionActorRNN, ScannedRNN
+from utils.debug import print_if_nonfinite
 
 
 class Transition(NamedTuple):
@@ -816,7 +817,7 @@ def ppo_single_update(
     rng = update_state.rng_keys
 
     # Always prints traj_batch when this function is vmaped which we are doing for multiple seeds.
-    # print_if_nonfinite(traj_batch)
+    print_if_nonfinite(traj_batch, "traj_batch")
 
     def callback(metric):
         out = metric["actor_network"]

@@ -12,7 +12,6 @@ from jaxtyping import Array, Float
 from jraph._src import utils
 
 from config.mappo_config import MAPPOConfig
-from utils.debug import print_if_nonfinite
 
 
 class ScannedRNN(nn.Module):
@@ -82,6 +81,7 @@ class ActorRNN(nn.Module):
             self.action_dim, kernel_init=orthogonal(0.01), bias_init=constant(0.0)
         )(actor_mean)
 
+        action_logits = jnp.clip(action_logits, -10, 10)
         pi = distrax.Categorical(logits=action_logits)
 
         return hidden, pi
@@ -164,9 +164,6 @@ class GraphMultiHeadAttentionLayer(nn.Module):
             nodes = jnp.mean(jnp.stack(nodes_seg_sum_from_each_attn_head), axis=0)
         else:
             nodes = jnp.concatenate(nodes_seg_sum_from_each_attn_head, axis=-1)
-
-        print_if_nonfinite(nodes, "nodes")
-
         return graph._replace(nodes=nodes)
 
 
