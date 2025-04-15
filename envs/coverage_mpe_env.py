@@ -764,8 +764,8 @@ class CoverageMPEEnvironment(MultiAgentEnv):
         @partial(jax.vmap, in_axes=(None, 0))
         @partial(jax.vmap, in_axes=(0, None))
         def compute_distance(
-            agent_id: Float[Array, f"{EntityIndexAxis}"],
-            landmark_id: Float[Array, f"{EntityIndexAxis}"],
+            agent_id: Int[Array, f"{EntityIndexAxis}"],
+            landmark_id: Int[Array, f"{EntityIndexAxis}"],
         ) -> Float[Array, f"{EntityIndexAxis} {EntityIndexAxis}"]:
             return jnp.linalg.norm(
                 state.entity_positions[agent_id] - state.entity_positions[landmark_id]
