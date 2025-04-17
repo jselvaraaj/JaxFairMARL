@@ -870,7 +870,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             key_double_integrator,
             state,
             u,
-            is_agent_dead & jnp.zeros_like(is_agent_dead),
+            is_agent_dead,
         )
         dones = jnp.asarray(state.step >= self.max_steps) | is_agent_dead
 
@@ -884,24 +884,18 @@ class CoverageMPEEnvironment(MultiAgentEnv):
         #     state.did_agent_die_this_time_step ^ is_agent_dead
         # )
 
-        # Only move agents to their goal positions when they die for the first time
-        # Use a mask that is only True for newly dead agents
-        # newly_dead_mask = (~state.did_agent_die_this_time_step) & is_agent_dead
-
-        agent_positions = entity_positions[self.agent_indices]
-        # jnp.where(
-        #     newly_dead_mask[..., None],
-        #     entity_positions[agent_indices_to_landmark_index],
-        #     entity_positions[: self.num_agents],
-        # )
+        agent_positions = jnp.where(
+            did_agent_die_this_time_step[..., None],
+            entity_positions[agent_indices_to_landmark_index],
+            entity_positions[: self.num_agents],
+        )
 
         # Zero out velocities for newly dead agents
-        agent_velocities = entity_velocities[self.agent_indices]
-        # jnp.where(
-        #     newly_dead_mask[..., None],
-        #     jnp.zeros_like(entity_velocities[self.agent_indices]),
-        #     entity_velocities[self.agent_indices],
-        # )
+        agent_velocities = jnp.where(
+            did_agent_die_this_time_step[..., None],
+            jnp.zeros_like(entity_velocities[self.agent_indices]),
+            entity_velocities[self.agent_indices],
+        )
 
         entity_positions = entity_positions.at[: self.num_agents].set(agent_positions)
         entity_velocities = entity_velocities.at[: self.num_agents].set(
