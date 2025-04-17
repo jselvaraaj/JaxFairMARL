@@ -780,7 +780,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
                 replace=False,
             )
         elif self.assignment_strategy == AssignmentStrategy.OPTIMAL_DISTANCE.value:
-            costs = compute_distance(self.agent_indices, self.landmark_indices)
+            costs = compute_distance(self.agent_indices, self.landmark_indices).T
             agent_idx, landmark_idx = optax.assignment.hungarian_algorithm(costs)
 
             landmark_idx = landmark_idx + self.num_agents
