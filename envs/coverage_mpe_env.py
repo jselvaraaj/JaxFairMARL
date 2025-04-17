@@ -1022,8 +1022,9 @@ class CoverageMPEEnvironment(MultiAgentEnv):
                 state
             )
 
+        total_reward = jnp.where(state.dones, 0.0, total_reward)
         return {
-            agent_label: total_reward
+            agent_label: total_reward[agent_index]
             for agent_label, agent_index in self.agent_labels_to_index.items()
         }
 
