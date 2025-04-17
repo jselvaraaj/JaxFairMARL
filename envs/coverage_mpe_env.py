@@ -761,8 +761,8 @@ class CoverageMPEEnvironment(MultiAgentEnv):
         Int[Array, f"{AgentIndexAxis}"],
         Float[Array, f"{EntityIndexAxis}"],
     ]:
-        @partial(jax.vmap, in_axes=(None, 0))
         @partial(jax.vmap, in_axes=(0, None))
+        @partial(jax.vmap, in_axes=(None, 0))
         def compute_distance(
             agent_id: Int[Array, f"{EntityIndexAxis}"],
             landmark_id: Int[Array, f"{EntityIndexAxis}"],
@@ -780,7 +780,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
                 replace=False,
             )
         elif self.assignment_strategy == AssignmentStrategy.OPTIMAL_DISTANCE.value:
-            costs = compute_distance(self.agent_indices, self.landmark_indices).T
+            costs = compute_distance(self.agent_indices, self.landmark_indices)
             agent_idx, landmark_idx = optax.assignment.hungarian_algorithm(costs)
 
             checkify.debug_check(

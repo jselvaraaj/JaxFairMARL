@@ -238,15 +238,16 @@ def get_state_traj(
 
 
 if __name__ == "__main__":
-    artifact_version = "190"
+    artifact_version = "289"
 
     model_artifact_remote_name = (
         f"marl/JaxFairMARL/PPO_RNN_Runner_State:v{artifact_version}"
     )
 
-    traj_batch, config, env = get_state_traj(
-        model_artifact_remote_name, artifact_version, num_episodes=2
-    )
+    with jax.disable_jit(True):
+        traj_batch, config, env = get_state_traj(
+            model_artifact_remote_name, artifact_version, num_episodes=2
+        )
 
     viz = MPEVisualizer(env, traj_batch.env_state.env_state, config)
 
