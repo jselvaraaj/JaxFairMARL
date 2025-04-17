@@ -1015,7 +1015,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             )
         )
 
-        total_reward = global_reward + one_time_reaching_goal_reward
+        total_reward = global_reward  # + one_time_reaching_goal_reward
 
         if self.assignment_strategy == AssignmentStrategy.MIN_MAX_FAIR:
             total_reward = total_reward + self.fair_reward_min_max_fair_assignment(
