@@ -783,6 +783,17 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             costs = compute_distance(self.agent_indices, self.landmark_indices).T
             agent_idx, landmark_idx = optax.assignment.hungarian_algorithm(costs)
 
+            checkify.debug_check(
+                jnp.all(agent_idx >= 0) & jnp.all(agent_idx < self.num_agents),
+                "agent_idx is out of range {i}",
+                i=agent_idx,
+            )
+            checkify.debug_check(
+                jnp.all(landmark_idx >= 0) & jnp.all(landmark_idx < self.num_landmarks),
+                "landmark_idx is out of range {i}",
+                i=landmark_idx,
+            )
+            # convert landmark index to entity index
             landmark_idx = landmark_idx + self.num_agents
             agent_indices_to_landmark_index = jnp.full(
                 (self.num_agents,), SENTINEL, dtype=jnp.int32
@@ -791,7 +802,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
                 agent_idx
             ].set(landmark_idx)
         elif self.assignment_strategy == AssignmentStrategy.MIN_MAX_FAIR.value:
-            costs = compute_distance(self.agent_indices, self.landmark_indices)
+            costs = compute_distance(self.agent_indices, self.landmark_indices).T
             agent_idx, landmark_idx = lexicographic_bottleneck_assignment(costs)
 
             landmark_idx = landmark_idx + self.num_agents
@@ -803,7 +814,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             ].set(landmark_idx)
         else:
             raise Exception
-        dist_matrix = compute_distance(self.agent_indices, self.landmark_indices)
+        dist_matrix = compute_distance(self.agent_indices, self.landmark_indices).T
 
         landmark_to_closest_agent_dist = (
             1
@@ -845,10 +856,8 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             )
         else:
             # Random assignment is made only once per episode in the reset function
-            agent_indices_to_landmark_index, entity_occupancy = (
-                state.agent_indices_to_landmark_index,
-                state.entity_occupancy,
-            )
+            _, entity_occupancy = self.get_assignment(key, state)
+            agent_indices_to_landmark_index = state.agent_indices_to_landmark_index
 
         checkify.debug_check(
             (agent_indices_to_landmark_index != SENTINEL).all(),
