@@ -335,7 +335,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             entity_occupancy=jnp.full(self.num_entities, SENTINEL),
             closest_landmark_idx=jnp.full(self.num_entities, SENTINEL),
             distance_travelled=jnp.zeros(self.num_agents),
-            dones=jnp.full(self.num_agents, False),
+            dones=jnp.asarray(False),
             step=0,
             did_agent_die_this_time_step=jnp.full(self.num_agents, False),
             did_agent_die_last_time_step=jnp.full(self.num_agents, False),
@@ -431,10 +431,14 @@ class CoverageMPEEnvironment(MultiAgentEnv):
                     [
                         agent_position.flatten() - agent_position.flatten(),
                         agent_velocity.flatten(),
-                        first_landmark_relative_position.flatten(),
-                        second_landmark_relative_position.flatten(),
-                        jnp.repeat(state.entity_occupancy[first_landmark_idx], 2),
-                        jnp.repeat(state.entity_occupancy[second_landmark_idx], 2),
+                        jnp.zeros_like(first_landmark_relative_position.flatten()),
+                        jnp.zeros_like(second_landmark_relative_position.flatten()),
+                        jnp.zeros_like(
+                            jnp.repeat(state.entity_occupancy[first_landmark_idx], 2)
+                        ),
+                        jnp.zeros_like(
+                            jnp.repeat(state.entity_occupancy[second_landmark_idx], 2)
+                        ),
                     ]
                 ),
                 first_landmark_idx,
@@ -518,12 +522,16 @@ class CoverageMPEEnvironment(MultiAgentEnv):
                 node_communication_message = communication_message[entity_idx]
 
             equivariant_node_features = jnp.stack(
-                [relative_position, relative_velocity, goal_relative_coord]
+                [
+                    relative_position,
+                    relative_velocity,
+                    jnp.zeros_like(goal_relative_coord),
+                ]
             )
             non_equivariant_node_features = jnp.concatenate(
                 [
                     node_communication_message,
-                    entity_occupancy,
+                    jnp.zeros_like(entity_occupancy),
                     jnp.asarray([entity_type]),
                 ]
             )
@@ -802,7 +810,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
                 agent_idx
             ].set(landmark_idx)
         elif self.assignment_strategy == AssignmentStrategy.MIN_MAX_FAIR.value:
-            costs = compute_distance(self.agent_indices, self.landmark_indices).T
+            costs = compute_distance(self.agent_indices, self.landmark_indices)
             agent_idx, landmark_idx = lexicographic_bottleneck_assignment(costs)
 
             landmark_idx = landmark_idx + self.num_agents
@@ -814,7 +822,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             ].set(landmark_idx)
         else:
             raise Exception
-        dist_matrix = compute_distance(self.agent_indices, self.landmark_indices).T
+        dist_matrix = compute_distance(self.agent_indices, self.landmark_indices)
 
         landmark_to_closest_agent_dist = (
             1
@@ -879,9 +887,9 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             key_double_integrator,
             state,
             u,
-            is_agent_dead,
+            is_agent_dead & jnp.zeros_like(is_agent_dead),
         )
-        dones = jnp.asarray(state.step >= self.max_steps) | is_agent_dead
+        dones = jnp.asarray(state.step >= self.max_steps)  # | is_agent_dead
 
         did_agent_die_this_time_step = (
             ~state.did_agent_die_last_time_step & is_agent_dead
@@ -893,18 +901,20 @@ class CoverageMPEEnvironment(MultiAgentEnv):
         #     state.did_agent_die_this_time_step ^ is_agent_dead
         # )
 
-        agent_positions = jnp.where(
-            did_agent_die_this_time_step[..., None],
-            entity_positions[agent_indices_to_landmark_index],
-            entity_positions[: self.num_agents],
-        )
+        agent_positions = entity_positions[: self.num_agents]
+        # jnp.where(
+        #     did_agent_die_this_time_step[..., None],
+        #     entity_positions[agent_indices_to_landmark_index],
+        #     entity_positions[: self.num_agents],
+        # )
 
         # Zero out velocities for newly dead agents
-        agent_velocities = jnp.where(
-            did_agent_die_this_time_step[..., None],
-            jnp.zeros_like(entity_velocities[self.agent_indices]),
-            entity_velocities[self.agent_indices],
-        )
+        agent_velocities = entity_velocities[self.agent_indices]
+        # jnp.where(
+        #     did_agent_die_this_time_step[..., None],
+        #     jnp.zeros_like(entity_velocities[self.agent_indices]),
+        #     entity_velocities[self.agent_indices],
+        # )
 
         entity_positions = entity_positions.at[: self.num_agents].set(agent_positions)
         entity_velocities = entity_velocities.at[: self.num_agents].set(
@@ -942,7 +952,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
         )
         graph = self.get_graph(state)
         dones_with_agent_label = {
-            agent_label: dones[i] for i, agent_label in enumerate(self.agent_labels)
+            agent_label: dones for agent_label in self.agent_labels
         }
         dones_with_agent_label.update({"__all__": jnp.all(dones)})
         return (
@@ -1025,9 +1035,8 @@ class CoverageMPEEnvironment(MultiAgentEnv):
                 state
             )
 
-        total_reward = jnp.where(state.dones, 0.0, total_reward)
         return {
-            agent_label: total_reward[agent_index]
+            agent_label: total_reward
             for agent_label, agent_index in self.agent_labels_to_index.items()
         }
 

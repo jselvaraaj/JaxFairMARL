@@ -517,20 +517,13 @@ def _env_step(
         info,
     )
     if is_running_in_viz_mode:
-        transition = TransitionForVisualization(
-            jnp.tile(done["__all__"], env.num_agents),
-            last_done,
-            action.squeeze(),
-            value.squeeze(),
-            batchify(
-                reward, env.agent_labels, config.derived_values.num_actors
-            ).squeeze(),
-            log_prob.squeeze(),
-            obs_batch,
-            graph_batch,
-            world_state,
-            info,
+        tiled_log_env_state = jax.tree.map(
+            lambda x: jnp.tile(x, (env.num_agents,) + (1,) * (x.ndim - 1)),
             log_env_state,
+        )
+        transition = TransitionForVisualization(
+            *transition,
+            env_state=tiled_log_env_state,
         )
 
     runner_state = EnvStepRunnerState(
