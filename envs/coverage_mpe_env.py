@@ -402,13 +402,15 @@ class CoverageMPEEnvironment(MultiAgentEnv):
                 state.entity_occupancy == 1, jnp.inf, dist_matrix
             )
 
-            first_landmark_idx = jnp.argmin(unoccupied_dist_matrix, axis=0)
+            # first_landmark_idx = jnp.argmin(unoccupied_dist_matrix, axis=0)
             # Make them landmark indices don't point to agents
-            first_landmark_idx = jnp.where(
-                first_landmark_idx < self.num_agents,
-                first_landmark_idx + self.num_agents,
-                first_landmark_idx,
-            )
+            # first_landmark_idx = jnp.where(
+            #     first_landmark_idx < self.num_agents,
+            #     first_landmark_idx + self.num_agents,
+            #     first_landmark_idx,
+            # )
+            first_landmark_idx = self.num_agents + agent_idx
+
             dist_matrix = dist_matrix.at[first_landmark_idx].set(jnp.inf)
             second_landmark_idx = jnp.argmin(dist_matrix, axis=0)
             # Make them landmark indices don't point to agents
@@ -431,7 +433,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
                     [
                         agent_position.flatten() - agent_position.flatten(),
                         agent_velocity.flatten(),
-                        jnp.zeros_like(first_landmark_relative_position.flatten()),
+                        first_landmark_relative_position.flatten(),
                         jnp.zeros_like(second_landmark_relative_position.flatten()),
                         jnp.zeros_like(
                             jnp.repeat(state.entity_occupancy[first_landmark_idx], 2)
@@ -494,10 +496,13 @@ class CoverageMPEEnvironment(MultiAgentEnv):
                 f"{AgentIndexAxis} {EntityIndexAxis}  num_non_equivariant_features",
             ],
         ]:
+            # goal_idx = jnp.where(
+            #     entity_idx < self.num_agents,
+            #     state.closest_landmark_idx[entity_idx],
+            #     entity_idx,
+            # )
             goal_idx = jnp.where(
-                entity_idx < self.num_agents,
-                state.closest_landmark_idx[entity_idx],
-                entity_idx,
+                entity_idx < self.num_agents, self.num_agents + entity_idx, entity_idx
             )
             entity_occupancy = state.entity_occupancy[goal_idx][None]
 
@@ -525,7 +530,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
                 [
                     relative_position,
                     relative_velocity,
-                    jnp.zeros_like(goal_relative_coord),
+                    goal_relative_coord,
                 ]
             )
             non_equivariant_node_features = jnp.concatenate(
@@ -880,7 +885,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
 
         # death masking
         is_agent_dead = jax.vmap(self.is_there_overlap, in_axes=(0, 0, None))(
-            self.agent_indices, agent_indices_to_landmark_index, state
+            self.agent_indices, self.landmark_indices, state
         )
 
         entity_positions, entity_velocities = self._double_integrator_dynamics(
@@ -983,9 +988,11 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             agent_index: Int[Array, AgentIndexAxis], state: MPEState
         ) -> Float[Array, AgentIndexAxis]:
             # reward is the negative distance from agent to landmark
-            corresponding_landmark_index = state.agent_indices_to_landmark_index[
-                agent_index
-            ]
+            # corresponding_landmark_index = state.agent_indices_to_landmark_index[
+            #     agent_index
+            # ]
+            corresponding_landmark_index = self.num_agents + agent_index
+
             return -jnp.sum(
                 jnp.square(
                     state.entity_positions[agent_index]
