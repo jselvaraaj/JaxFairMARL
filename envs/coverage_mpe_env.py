@@ -63,8 +63,8 @@ class MPEState(NamedTuple):
     entity_occupancy: Float[Array, f"{EntityIndexAxis}"]
     closest_landmark_idx: Int[Array, f"{EntityIndexAxis}"]
     distance_travelled: Float[Array, f"{AgentIndexAxis}"]
-    did_agent_die_this_time_step: Float[Array, f"{AgentIndexAxis}"]
-    is_agent_dead: Float[Array, f"{AgentIndexAxis}"]
+    did_agent_die_this_time_step: Bool[Array, f"{AgentIndexAxis}"]
+    is_agent_dead: Bool[Array, f"{AgentIndexAxis}"]
     agent_communication_message: Float[Array, f"{AgentIndexAxis} ..."] | None
     agent_visibility_radius: Float[Array, f"{AgentIndexAxis}"]
 
@@ -335,7 +335,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             entity_occupancy=jnp.full(self.num_entities, SENTINEL),
             closest_landmark_idx=jnp.full(self.num_entities, SENTINEL),
             distance_travelled=jnp.zeros(self.num_agents),
-            dones=jnp.asarray(False),
+            dones=jnp.full(self.num_agents, False),
             step=0,
             did_agent_die_this_time_step=jnp.full(self.num_agents, False),
             is_agent_dead=jnp.full(self.num_agents, False),
@@ -382,8 +382,8 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             landmark_id: Int[Array, f"{LandmarkIndexAxis}"],
         ) -> Float[Array, f"{LandmarkIndexAxis}"]:
             # Using jnp.take to handle traced arrays properly in indexing
-            agent_position = jnp.take(state.entity_positions, agent_id, axis=0)
-            landmark_position = jnp.take(state.entity_positions, landmark_id, axis=0)
+            agent_position = state.entity_positions[agent_id]
+            landmark_position = state.entity_positions[landmark_id]
             return jnp.linalg.norm(agent_position - landmark_position)
 
         @partial(jax.vmap, in_axes=[0, None])
@@ -412,7 +412,8 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             first_landmark_idx = self.num_agents + agent_idx
 
             dist_matrix = dist_matrix.at[first_landmark_idx].set(jnp.inf)
-            second_landmark_idx = jnp.argmin(dist_matrix, axis=0)
+            # second_landmark_idx = jnp.argmin(dist_matrix, axis=0)
+            second_landmark_idx = first_landmark_idx
             # Make them landmark indices don't point to agents
             second_landmark_idx = jnp.where(
                 second_landmark_idx < self.num_agents,
@@ -434,13 +435,9 @@ class CoverageMPEEnvironment(MultiAgentEnv):
                         agent_position.flatten() - agent_position.flatten(),
                         agent_velocity.flatten(),
                         first_landmark_relative_position.flatten(),
-                        jnp.zeros_like(second_landmark_relative_position.flatten()),
-                        jnp.zeros_like(
-                            jnp.repeat(state.entity_occupancy[first_landmark_idx], 2)
-                        ),
-                        jnp.zeros_like(
-                            jnp.repeat(state.entity_occupancy[second_landmark_idx], 2)
-                        ),
+                        second_landmark_relative_position.flatten(),
+                        jnp.repeat(state.entity_occupancy[first_landmark_idx], 2),
+                        jnp.repeat(state.entity_occupancy[second_landmark_idx], 2),
                     ]
                 ),
                 first_landmark_idx,
@@ -496,13 +493,10 @@ class CoverageMPEEnvironment(MultiAgentEnv):
                 f"{AgentIndexAxis} {EntityIndexAxis}  num_non_equivariant_features",
             ],
         ]:
-            # goal_idx = jnp.where(
-            #     entity_idx < self.num_agents,
-            #     state.closest_landmark_idx[entity_idx],
-            #     entity_idx,
-            # )
             goal_idx = jnp.where(
-                entity_idx < self.num_agents, self.num_agents + entity_idx, entity_idx
+                entity_idx < self.num_agents,
+                state.closest_landmark_idx[entity_idx],
+                entity_idx,
             )
             entity_occupancy = state.entity_occupancy[goal_idx][None]
 
@@ -536,7 +530,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             non_equivariant_node_features = jnp.concatenate(
                 [
                     node_communication_message,
-                    jnp.zeros_like(entity_occupancy),
+                    entity_occupancy,
                     jnp.asarray([entity_type]),
                 ]
             )
@@ -777,9 +771,9 @@ class CoverageMPEEnvironment(MultiAgentEnv):
         @partial(jax.vmap, in_axes=(0, None))
         @partial(jax.vmap, in_axes=(None, 0))
         def compute_distance(
-            agent_id: Int[Array, f"{EntityIndexAxis}"],
-            landmark_id: Int[Array, f"{EntityIndexAxis}"],
-        ) -> Float[Array, f"{EntityIndexAxis} {EntityIndexAxis}"]:
+            agent_id: Int[Array, f"{AgentIndexAxis}"],
+            landmark_id: Int[Array, f"{LandmarkIndexAxis}"],
+        ) -> Float[Array, f"{AgentIndexAxis} {LandmarkIndexAxis}"]:
             return jnp.linalg.norm(
                 state.entity_positions[agent_id] - state.entity_positions[landmark_id]
             )
@@ -892,15 +886,15 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             key_double_integrator,
             state,
             u,
-            is_there_overlap_between_agent_and_landmark
-            & jnp.zeros_like(is_there_overlap_between_agent_and_landmark),
+            is_there_overlap_between_agent_and_landmark,
         )
-        dones = jnp.asarray(state.step >= self.max_steps)  # | is_agent_dead
 
         is_agent_dead = state.did_agent_die_this_time_step | state.is_agent_dead
         did_agent_die_this_time_step = (
             ~is_agent_dead & is_there_overlap_between_agent_and_landmark
         )
+
+        dones = jnp.asarray(state.step >= self.max_steps) | is_agent_dead
 
         agent_positions = jnp.where(
             did_agent_die_this_time_step[..., None],
@@ -950,7 +944,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
         )
         graph = self.get_graph(state)
         dones_with_agent_label = {
-            agent_label: dones for agent_label in self.agent_labels
+            agent_label: dones[i] for i, agent_label in enumerate(self.agent_labels)
         }
         dones_with_agent_label.update({"__all__": jnp.all(dones)})
         return (
