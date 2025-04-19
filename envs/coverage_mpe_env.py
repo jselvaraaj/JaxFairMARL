@@ -401,7 +401,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             ), "dist_matrix is not the same size as the number of entities"
 
             # set distance to other agents to infinity. so we only consider landmarks
-            dist_matrix = dist_matrix.at[self.agent_indices].set(jnp.inf)
+            dist_matrix = dist_matrix.at[self.agent_indices].set(SENTINEL)
 
             checkify.debug_check(
                 (state.entity_occupancy != 1).any(),
@@ -409,10 +409,10 @@ class CoverageMPEEnvironment(MultiAgentEnv):
                 i=state.entity_occupancy,
             )
             unoccupied_dist_matrix = jnp.where(
-                state.entity_occupancy == 1, jnp.inf, dist_matrix
+                state.entity_occupancy == 1, SENTINEL, dist_matrix
             )
             first_landmark_idx = jnp.argmin(unoccupied_dist_matrix)
-            dist_matrix = dist_matrix.at[first_landmark_idx].set(jnp.inf)
+            dist_matrix = dist_matrix.at[first_landmark_idx].set(SENTINEL)
             second_landmark_idx = jnp.argmin(dist_matrix)
 
             checkify.debug_check(
@@ -509,12 +509,12 @@ class CoverageMPEEnvironment(MultiAgentEnv):
                 f"{AgentIndexAxis} {EntityIndexAxis}  num_non_equivariant_features",
             ],
         ]:
-            # goal_idx = state.closest_landmark_idx[entity_idx]
-            goal_idx = jnp.where(
-                entity_idx < self.num_agents,
-                self.landmark_indices[entity_idx],
-                entity_idx,
-            )
+            goal_idx = state.closest_landmark_idx[entity_idx]
+            # goal_idx = jnp.where(
+            #     entity_idx < self.num_agents,
+            #     self.landmark_indices[entity_idx],
+            #     entity_idx,
+            # )
 
             checkify.debug_check(
                 jnp.all(goal_idx >= self.num_agents)
@@ -529,6 +529,19 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             if self.add_target_goal_to_nodes:
                 goal_relative_coord = (
                     state.entity_positions[goal_idx] - state.entity_positions[agent_id]
+                )
+
+                # if all entities are occupies, then goal index might become an agent index.
+                # in that case, we don't want to include the goal relative coordinate in the node features.
+                goal_relative_coord = jnp.where(
+                    goal_idx < self.num_agents,
+                    jnp.zeros_like(goal_relative_coord),
+                    goal_relative_coord,
+                )
+                entity_occupancy = jnp.where(
+                    goal_idx < self.num_agents,
+                    jnp.zeros_like(entity_occupancy),
+                    entity_occupancy,
                 )
             relative_position = (
                 state.entity_positions[entity_idx] - state.entity_positions[agent_id]
