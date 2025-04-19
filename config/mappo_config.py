@@ -142,7 +142,7 @@ class MAPPOConfig(NamedTuple):
     network_config: NetworkConfig
     wandb_config: WandbConfig
     derived_values: DerivedValues
-    disable_checkify: bool = True
+    disable_checkify: bool = False
     SPMD: bool = False
 
     @classmethod

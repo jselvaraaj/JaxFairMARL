@@ -395,32 +395,39 @@ class CoverageMPEEnvironment(MultiAgentEnv):
         ]:
             """Return observation for agent i."""
             dist_matrix = compute_distance(agent_idx, self.entity_indices)
+            assert dist_matrix.ndim == 1, "dist_matrix is not a 1D array"
+            assert (
+                dist_matrix.size == self.num_entities
+            ), "dist_matrix is not the same size as the number of entities"
 
-            # TODO: check if all entity_occupancy can be 1
+            # set distance to other agents to infinity. so we only consider landmarks
+            dist_matrix = dist_matrix.at[self.agent_indices].set(jnp.inf)
 
+            checkify.debug_check(
+                (state.entity_occupancy != 1).any(),
+                "all entity_occupancy is 1 {i}",
+                i=state.entity_occupancy,
+            )
             unoccupied_dist_matrix = jnp.where(
                 state.entity_occupancy == 1, jnp.inf, dist_matrix
             )
-
-            # first_landmark_idx = jnp.argmin(unoccupied_dist_matrix, axis=0)
-            # Make them landmark indices don't point to agents
-            # first_landmark_idx = jnp.where(
-            #     first_landmark_idx < self.num_agents,
-            #     first_landmark_idx + self.num_agents,
-            #     first_landmark_idx,
-            # )
-            first_landmark_idx = self.num_agents + agent_idx
-
+            first_landmark_idx = jnp.argmin(unoccupied_dist_matrix)
             dist_matrix = dist_matrix.at[first_landmark_idx].set(jnp.inf)
-            # second_landmark_idx = jnp.argmin(dist_matrix, axis=0)
-            second_landmark_idx = first_landmark_idx
-            # Make them landmark indices don't point to agents
-            second_landmark_idx = jnp.where(
-                second_landmark_idx < self.num_agents,
-                second_landmark_idx + self.num_agents,
-                second_landmark_idx,
-            )
+            second_landmark_idx = jnp.argmin(dist_matrix)
 
+            checkify.debug_check(
+                jnp.all(first_landmark_idx >= self.num_agents)
+                & jnp.all(first_landmark_idx < self.num_entities),
+                "first_landmark_idx is not a landmark index {i}",
+                i=first_landmark_idx,
+            )
+            assert second_landmark_idx.ndim == 0, "second_landmark_idx is not a scalar"
+            checkify.debug_check(
+                jnp.all(second_landmark_idx >= self.num_agents)
+                & jnp.all(second_landmark_idx < self.num_entities),
+                "second_landmark_idx is not a landmark index {i}",
+                i=second_landmark_idx,
+            )
             first_landmark_position = state.entity_positions[first_landmark_idx]
             second_landmark_position = state.entity_positions[second_landmark_idx]
             agent_position = state.entity_positions[agent_idx]
@@ -449,7 +456,16 @@ class CoverageMPEEnvironment(MultiAgentEnv):
         closest_landmark_idx = jnp.concatenate(
             [closest_landmark_idx, self.landmark_indices]
         )
-
+        assert (
+            closest_landmark_idx.size == self.num_entities
+        ), "closest_landmark_idx is not defined for all entities"
+        assert closest_landmark_idx.ndim == 1, "closest_landmark_idx is not a 1D array"
+        checkify.debug_check(
+            jnp.all(closest_landmark_idx >= self.num_agents)
+            & jnp.all(closest_landmark_idx < self.num_entities),
+            "closest_landmark_idx is not a landmark index {i}",
+            i=closest_landmark_idx,
+        )
         state = state._replace(closest_landmark_idx=closest_landmark_idx)
 
         return {
@@ -493,11 +509,15 @@ class CoverageMPEEnvironment(MultiAgentEnv):
                 f"{AgentIndexAxis} {EntityIndexAxis}  num_non_equivariant_features",
             ],
         ]:
-            goal_idx = jnp.where(
-                entity_idx < self.num_agents,
-                state.closest_landmark_idx[entity_idx],
-                entity_idx,
+            goal_idx = state.closest_landmark_idx[entity_idx]
+
+            checkify.debug_check(
+                jnp.all(goal_idx >= self.num_agents)
+                & jnp.all(goal_idx < self.num_entities),
+                "goal_idx is not a landmark index {i}",
+                i=goal_idx,
             )
+
             entity_occupancy = state.entity_occupancy[goal_idx][None]
 
             goal_relative_coord = jnp.asarray([])
@@ -823,15 +843,21 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             raise Exception
         dist_matrix = compute_distance(self.agent_indices, self.landmark_indices)
 
-        landmark_to_closest_agent_dist = (
-            1
-            - jnp.clip(
+        # range is 0 to 1, higher value means this landmark is more covered by the agents
+        normalized_landmark_coverage = (
+            jnp.clip(
                 jnp.min(dist_matrix, axis=0),
                 0,
                 state.agent_visibility_radius,
             )
             / state.agent_visibility_radius
         )
+        checkify.debug_check(
+            (normalized_landmark_coverage <= 1).all(),
+            "normalized_landmark_coverage is greater than 1 {i}",
+            i=normalized_landmark_coverage,
+        )
+        landmark_to_closest_agent_dist = 1 - normalized_landmark_coverage
         entity_occupancy = jnp.concatenate(
             [jnp.ones(self.num_agents), landmark_to_closest_agent_dist]
         )
