@@ -29,6 +29,9 @@ matplotlib
     # einshape
     git+https://github.com/deepmind/einshape
 
+    # optimization
+    ortools # OR-Tools - Google Optimization Tools
+
     #NODE
     # diffrax
     # The following has to be done to use diffrax in colab gpu
