@@ -430,6 +430,25 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             )
             first_landmark_position = state.entity_positions[first_landmark_idx]
             second_landmark_position = state.entity_positions[second_landmark_idx]
+
+            # zero out the positions if all entities are occupied
+            first_landmark_position = jnp.where(
+                jnp.logical_or(
+                    first_landmark_idx < self.num_agents,
+                    first_landmark_idx >= self.num_entities,
+                ),
+                jnp.zeros_like(first_landmark_position),
+                first_landmark_position,
+            )
+            second_landmark_position = jnp.where(
+                jnp.logical_or(
+                    second_landmark_idx < self.num_agents,
+                    second_landmark_idx >= self.num_entities,
+                ),
+                jnp.zeros_like(second_landmark_position),
+                second_landmark_position,
+            )
+
             agent_position = state.entity_positions[agent_idx]
             agent_velocity = state.entity_velocities[agent_idx]
             first_landmark_relative_position = first_landmark_position - agent_position
