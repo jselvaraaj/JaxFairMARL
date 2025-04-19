@@ -64,7 +64,7 @@ class MPEState(NamedTuple):
     closest_landmark_idx: Int[Array, f"{EntityIndexAxis}"]
     distance_travelled: Float[Array, f"{AgentIndexAxis}"]
     did_agent_die_this_time_step: Float[Array, f"{AgentIndexAxis}"]
-    did_agent_die_last_time_step: Float[Array, f"{AgentIndexAxis}"]
+    is_agent_dead: Float[Array, f"{AgentIndexAxis}"]
     agent_communication_message: Float[Array, f"{AgentIndexAxis} ..."] | None
     agent_visibility_radius: Float[Array, f"{AgentIndexAxis}"]
 
@@ -338,7 +338,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             dones=jnp.asarray(False),
             step=0,
             did_agent_die_this_time_step=jnp.full(self.num_agents, False),
-            did_agent_die_last_time_step=jnp.full(self.num_agents, False),
+            is_agent_dead=jnp.full(self.num_agents, False),
             agent_communication_message=initial_agent_communication_message,
             agent_visibility_radius=agent_visibility_radius,
         )
@@ -884,42 +884,35 @@ class CoverageMPEEnvironment(MultiAgentEnv):
         )
 
         # death masking
-        is_agent_dead = jax.vmap(self.is_there_overlap, in_axes=(0, 0, None))(
-            self.agent_indices, self.landmark_indices, state
-        )
+        is_there_overlap_between_agent_and_landmark = jax.vmap(
+            self.is_there_overlap, in_axes=(0, 0, None)
+        )(self.agent_indices, self.landmark_indices, state)
 
         entity_positions, entity_velocities = self._double_integrator_dynamics(
             key_double_integrator,
             state,
             u,
-            is_agent_dead & jnp.zeros_like(is_agent_dead),
+            is_there_overlap_between_agent_and_landmark
+            & jnp.zeros_like(is_there_overlap_between_agent_and_landmark),
         )
         dones = jnp.asarray(state.step >= self.max_steps)  # | is_agent_dead
 
+        is_agent_dead = state.did_agent_die_this_time_step | state.is_agent_dead
         did_agent_die_this_time_step = (
-            ~state.did_agent_die_last_time_step & is_agent_dead
+            ~is_agent_dead & is_there_overlap_between_agent_and_landmark
         )
-        did_agent_die_last_time_step = (
-            is_agent_dead | state.did_agent_die_last_time_step
+
+        agent_positions = jnp.where(
+            did_agent_die_this_time_step[..., None],
+            entity_positions[self.landmark_indices],
+            entity_positions[: self.num_agents],
         )
-        # did_agent_die_this_time_step = (
-        #     state.did_agent_die_this_time_step ^ is_agent_dead
-        # )
 
-        agent_positions = entity_positions[: self.num_agents]
-        # jnp.where(
-        #     did_agent_die_this_time_step[..., None],
-        #     entity_positions[agent_indices_to_landmark_index],
-        #     entity_positions[: self.num_agents],
-        # )
-
-        # Zero out velocities for newly dead agents
-        agent_velocities = entity_velocities[self.agent_indices]
-        # jnp.where(
-        #     did_agent_die_this_time_step[..., None],
-        #     jnp.zeros_like(entity_velocities[self.agent_indices]),
-        #     entity_velocities[self.agent_indices],
-        # )
+        agent_velocities = jnp.where(
+            did_agent_die_this_time_step[..., None],
+            jnp.zeros_like(entity_velocities[self.agent_indices]),
+            entity_velocities[self.agent_indices],
+        )
 
         entity_positions = entity_positions.at[: self.num_agents].set(agent_positions)
         entity_velocities = entity_velocities.at[: self.num_agents].set(
@@ -943,7 +936,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             dones=dones,
             step=state.step + 1,
             did_agent_die_this_time_step=did_agent_die_this_time_step,
-            did_agent_die_last_time_step=did_agent_die_last_time_step,
+            is_agent_dead=is_agent_dead,
             agent_communication_message=state.agent_communication_message,
             agent_visibility_radius=state.agent_visibility_radius,
         )
@@ -1013,9 +1006,6 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             self.agent_indices,
         )  # [agent, agent, collison]
 
-        # def _agent_rew(agent_idx: int, collisions: Bool[Array, "..."]):
-        #     rew = -1 * jnp.sum(collisions[agent_idx])
-        #     return rew
         dist_reward = _dist_between_target_reward(self.agent_indices, state)
 
         global_dist_rew = self.distance_to_goal_reward_coefficient * jnp.sum(
@@ -1035,7 +1025,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             )
         )
 
-        total_reward = global_reward  # + one_time_reaching_goal_reward
+        total_reward = global_reward + one_time_reaching_goal_reward
 
         if self.assignment_strategy == AssignmentStrategy.MIN_MAX_FAIR:
             total_reward = total_reward + self.fair_reward_min_max_fair_assignment(
