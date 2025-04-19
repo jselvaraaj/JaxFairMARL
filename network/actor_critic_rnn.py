@@ -378,10 +378,11 @@ class CriticRNN(nn.Module):
             ]
         else:
             # concate the equivariant features
-            equivariant_nodes = einshape("...tnf->...t(nf)", graph.equivariant_nodes)
-            nodes = jnp.concatenate(
-                [equivariant_nodes, graph.non_equivariant_nodes], axis=-1
+            equivariant_nodes = einshape("...tnf->...(tnf)", graph.equivariant_nodes)
+            non_equivariant_nodes = einshape(
+                "...tf->...(tf)", graph.non_equivariant_nodes
             )
+            nodes = jnp.concatenate([equivariant_nodes, non_equivariant_nodes], axis=-1)
             # Embed entity_type.
             entity_type = nodes[..., -1].astype(jnp.int32)
             entity_emb = nn.Embed(
@@ -390,12 +391,10 @@ class CriticRNN(nn.Module):
             )(entity_type)
             nodes = jnp.concatenate([nodes[..., :-1], entity_emb], axis=-1)
 
-            # concate the stacked observation
-            nodes = einshape("...tf->...(tf)", nodes)
-
             world_state = jnp.sum(
                 nodes, axis=2
             )  # Aggregate all node features for a given actor and time step
+            world_state = jnp.concatenate([world_state, _w_s], axis=-1)
 
         embedding = nn.Dense(
             self.config.network_config.fc_dim_size,

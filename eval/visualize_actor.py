@@ -34,7 +34,8 @@ from network.actor_critic_rnn import CriticRNN, GraphAttentionActorRNN
 def get_restored_actor(model_artifact_name, config_dict, num_episodes):
     config = dict_to_config(config_dict)
     config = config._replace(
-        training_config=config.training_config._replace(num_envs=num_episodes)
+        training_config=config.training_config._replace(num_envs=num_episodes),
+        disable_checkify=True,
     )
     t_c = config.training_config
     t_c = t_c._replace(seed=65)
@@ -238,13 +239,13 @@ def get_state_traj(
 
 
 if __name__ == "__main__":
-    artifact_version = "1088"
+    artifact_version = "1248"
 
     model_artifact_remote_name = (
         f"marl/JaxFairMARL/PPO_RNN_Runner_State:v{artifact_version}"
     )
 
-    with jax.disable_jit(True):
+    with jax.disable_jit(False):
         traj_batch, config, env = get_state_traj(
             model_artifact_remote_name, artifact_version, num_episodes=2
         )
