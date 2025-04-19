@@ -509,12 +509,12 @@ class CoverageMPEEnvironment(MultiAgentEnv):
                 f"{AgentIndexAxis} {EntityIndexAxis}  num_non_equivariant_features",
             ],
         ]:
-            goal_idx = state.closest_landmark_idx[entity_idx]
-            # goal_idx = jnp.where(
-            #     entity_idx < self.num_agents,
-            #     self.landmark_indices[entity_idx],
-            #     entity_idx,
-            # )
+            # goal_idx = state.closest_landmark_idx[entity_idx]
+            goal_idx = jnp.where(
+                entity_idx < self.num_agents,
+                self.landmark_indices[entity_idx],
+                entity_idx,
+            )
 
             checkify.debug_check(
                 jnp.all(goal_idx >= self.num_agents)

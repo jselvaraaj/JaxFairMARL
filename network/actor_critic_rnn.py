@@ -140,9 +140,7 @@ class GraphMultiHeadAttentionLayer(nn.Module):
 
             key_edge_features = key_projection(edge_features)
 
-            key_received_attributes = (
-                key_received_attributes + key_edge_features[:, None, None]
-            )
+            key_received_attributes = key_received_attributes + key_edge_features
 
             softmax_logits: Float[Array, Literal["edge_id"]] = jnp.sum(
                 key_sent_attributes * key_received_attributes, axis=-1
@@ -192,7 +190,17 @@ class GraphStackedMultiHeadAttention(nn.Module):
         """Applies a Graph Attention layer."""
 
         # Make the given graph into jraph compatible format
-        equivariant_nodes, _, edges, receivers, senders, _, n_node, n_edge, _ = graph
+        (
+            equivariant_nodes,
+            non_equivariant_nodes,
+            edges,
+            receivers,
+            senders,
+            _,
+            n_node,
+            n_edge,
+            _,
+        ) = graph
 
         (
             num_env_steps,
@@ -225,6 +233,9 @@ class GraphStackedMultiHeadAttention(nn.Module):
         n_node = n_node.flatten()
         n_edge = n_edge.flatten()
 
+        # for now do non equivariant transformation and also concate the stacked node features
+        nodes = einshape("gtnf->g(tnf)", nodes)
+
         graph = jraph.GraphsTuple(
             nodes=nodes,
             edges=edges,
@@ -235,22 +246,14 @@ class GraphStackedMultiHeadAttention(nn.Module):
             globals=None,
         )
 
-        # for now do non equivariant transformation and also concate the stacked node features
-        nodes = einshape("gtnf->g1(tnf)", nodes)
-
         for _ in range(self.config.network_config.num_graph_attn_layers - 1):
             graph = GraphMultiHeadAttentionLayer(self.config)(
                 graph, avg_multi_head=False
             )
-            # sum over the equivariant features
-            graph = graph._replace(nodes=jnp.sum(graph.nodes, axis=-2)[..., None, :])
         # Average the multi-head attention for the last layer
         graph = GraphMultiHeadAttentionLayer(self.config)(graph, avg_multi_head=True)
 
         nodes, edges, receivers, senders, _, n_node, n_edge = graph
-
-        # take the last equivariant feature transformed feature. Note there's only right now.
-        nodes = nodes[..., -1, :]
 
         # note the other elements in the graph are still in jraph compatible format
         # but not reverting it back since won't be using it anymore
