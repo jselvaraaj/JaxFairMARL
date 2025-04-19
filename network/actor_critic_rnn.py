@@ -207,17 +207,31 @@ class GraphStackedMultiHeadAttention(nn.Module):
             num_actors,
             num_nodes_in_one_graph,
             num_time_steps_concatenated,
-            *node_feature_dim,
+            *equivariant_node_feature_dim,
         ) = equivariant_nodes.shape
+        (
+            _,
+            _,
+            _,
+            _,
+            *non_equivariant_node_feature_dim,
+        ) = non_equivariant_nodes.shape
         _, _, num_edges, edge_feature_dim = edges.shape
         # flattening the batch dimension. so one graph contains all the time steps for all the actors and edges will be the only source of information for which node is connected to which other node.
         # That is, as long as there are no edges across these batch dimensions, this should be a safe operation.
         num_graph = num_env_steps * num_actors
-        nodes = equivariant_nodes.reshape(
+        equivariant_nodes = equivariant_nodes.reshape(
             (
                 num_graph * num_nodes_in_one_graph,
                 num_time_steps_concatenated,
-                *node_feature_dim,
+                *equivariant_node_feature_dim,
+            )
+        )
+        non_equivariant_nodes = non_equivariant_nodes.reshape(
+            (
+                num_graph * num_nodes_in_one_graph,
+                num_time_steps_concatenated,
+                *non_equivariant_node_feature_dim,
             )
         )
         edges = edges.reshape((num_graph * num_edges, edge_feature_dim))
@@ -234,7 +248,18 @@ class GraphStackedMultiHeadAttention(nn.Module):
         n_edge = n_edge.flatten()
 
         # for now do non equivariant transformation and also concate the stacked node features
-        nodes = einshape("gtnf->g(tnf)", nodes)
+        equivariant_nodes = einshape("gtnf->g(tnf)", equivariant_nodes)
+        non_equivariant_nodes = einshape("gtf->g(tf)", non_equivariant_nodes)
+        # Embed entity_type.
+        entity_type = non_equivariant_nodes[..., -1].astype(jnp.int32)
+        entity_emb = nn.Embed(
+            self.config.derived_values.num_entity_types,
+            self.config.network_config.entity_type_embedding_dim,
+        )(entity_type)
+        non_equivariant_nodes = jnp.concatenate(
+            [non_equivariant_nodes[..., :-1], entity_emb], axis=-1
+        )
+        nodes = jnp.concatenate([equivariant_nodes, non_equivariant_nodes], axis=-1)
 
         graph = jraph.GraphsTuple(
             nodes=nodes,
@@ -253,12 +278,14 @@ class GraphStackedMultiHeadAttention(nn.Module):
         # Average the multi-head attention for the last layer
         graph = GraphMultiHeadAttentionLayer(self.config)(graph, avg_multi_head=True)
 
-        nodes, edges, receivers, senders, _, n_node, n_edge = graph
+        equivariant_nodes, edges, receivers, senders, _, n_node, n_edge = graph
 
         # note the other elements in the graph are still in jraph compatible format
         # but not reverting it back since won't be using it anymore
-        nodes = nodes.reshape(num_env_steps, num_actors, num_nodes_in_one_graph, -1)
-        graph = graph._replace(nodes=nodes)
+        equivariant_nodes = equivariant_nodes.reshape(
+            num_env_steps, num_actors, num_nodes_in_one_graph, -1
+        )
+        graph = graph._replace(nodes=equivariant_nodes)
         return graph
 
 
