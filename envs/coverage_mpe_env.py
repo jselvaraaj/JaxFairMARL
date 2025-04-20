@@ -887,11 +887,17 @@ class CoverageMPEEnvironment(MultiAgentEnv):
                 jax.ShapeDtypeStruct((self.num_landmarks,), jnp.int32),
             )
 
-            agent_idx, landmark_idx = jax.pure_callback(
+            # Use io_callback on TPU, pure_callback otherwise
+            jax_callback_fn = (
+                jax.experimental.io_callback
+                if jax.devices()[0].platform == "tpu"
+                else partial(jax.pure_callback, vmap_method="sequential")
+            )
+
+            agent_idx, landmark_idx = jax_callback_fn(
                 linear_sum_assignment_pure_callback,
                 result_shape,
                 costs,
-                vmap_method="sequential",
             )
 
             checkify.debug_check(
