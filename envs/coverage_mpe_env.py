@@ -550,7 +550,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
                 i=goal_idx,
             )
 
-            entity_occupancy = state.entity_occupancy[goal_idx][None]
+            # entity_occupancy = state.entity_occupancy[goal_idx][None]
 
             goal_relative_coord = jnp.asarray([])
             if self.add_target_goal_to_nodes:
@@ -560,16 +560,16 @@ class CoverageMPEEnvironment(MultiAgentEnv):
 
                 # if all entities are occupies, then goal index might become an agent index.
                 # in that case, we don't want to include the goal relative coordinate in the node features.
-                goal_relative_coord = jnp.where(
-                    goal_idx < self.num_agents,
-                    jnp.zeros_like(goal_relative_coord),
-                    goal_relative_coord,
-                )
-                entity_occupancy = jnp.where(
-                    goal_idx < self.num_agents,
-                    jnp.zeros_like(entity_occupancy),
-                    entity_occupancy,
-                )
+                # goal_relative_coord = jnp.where(
+                #     goal_idx < self.num_agents,
+                #     jnp.zeros_like(goal_relative_coord),
+                #     goal_relative_coord,
+                # )
+                # entity_occupancy = jnp.where(
+                #     goal_idx < self.num_agents,
+                #     jnp.zeros_like(entity_occupancy),
+                #     entity_occupancy,
+                # )
             relative_position = (
                 state.entity_positions[entity_idx] - state.entity_positions[agent_id]
             )
@@ -595,7 +595,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             non_equivariant_node_features = jnp.concatenate(
                 [
                     node_communication_message,
-                    entity_occupancy,
+                    # entity_occupancy,
                     jnp.asarray([entity_type]),
                 ]
             )

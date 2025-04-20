@@ -166,7 +166,7 @@ def get_actor_init_input(config: MAPPOConfig, env):
     # TODO: pull this from env
     num_coordinate = 2
     node_num_equivariant_feature = 2
-    node_non_equivariant_feature_dim = 2
+    node_non_equivariant_feature_dim = 1
 
     num_env = config.training_config.num_envs
     if config.env_config.env_kwargs.add_target_goal_to_nodes:
