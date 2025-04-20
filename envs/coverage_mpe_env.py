@@ -8,9 +8,6 @@ from jaxtyping import Array, Bool, Float, Int
 from scipy.optimize import linear_sum_assignment
 
 from config.mappo_config import AssignmentStrategy, CommunicationType
-from optimization.bottleneck_assignment_optimization import (
-    minmax_fair_assignment,
-)
 
 from .core.default_env_config import (
     AGENT_COLOR,
@@ -67,6 +64,7 @@ class MPEState(NamedTuple):
     is_agent_dead: Bool[Array, f"{AgentIndexAxis}"]
     agent_communication_message: Float[Array, f"{AgentIndexAxis} ..."] | None
     agent_visibility_radius: Float[Array, f"{AgentIndexAxis}"]
+    costs: Float[Array, f"{AgentIndexAxis} {LandmarkIndexAxis}"]
 
 
 class LinSpaceConfig(NamedTuple):
@@ -348,15 +346,17 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             is_agent_dead=jnp.full(self.num_agents, False),
             agent_communication_message=initial_agent_communication_message,
             agent_visibility_radius=agent_visibility_radius,
+            costs=jnp.zeros((self.num_agents, self.num_landmarks)),
         )
-        agent_indices_to_landmark_index, entity_occupancy = self.get_assignment(
-            key, state
+        agent_indices_to_landmark_index, entity_occupancy, dist_matrix = (
+            self.get_assignment(key, state)
         )
-        checkify.debug_check(
-            (agent_indices_to_landmark_index != SENTINEL).all(),
-            "agent_indices_to_landmark_index is used before it is initialized {i}",
-            i=agent_indices_to_landmark_index,
-        )
+        if self.assignment_strategy != AssignmentStrategy.MIN_MAX_FAIR.value:
+            checkify.debug_check(
+                (agent_indices_to_landmark_index != SENTINEL).all(),
+                "agent_indices_to_landmark_index is used before it is initialized {i}",
+                i=agent_indices_to_landmark_index,
+            )
         checkify.debug_check(
             (entity_occupancy != SENTINEL).all(),
             "entity_occupancy is used before it is initialized {i}",
@@ -365,6 +365,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
         state = state._replace(
             agent_indices_to_landmark_index=agent_indices_to_landmark_index,
             entity_occupancy=entity_occupancy,
+            costs=dist_matrix,
         )
         obs, state = self.get_observation(state)
         checkify.debug_check(
@@ -919,42 +920,18 @@ class CoverageMPEEnvironment(MultiAgentEnv):
                 agent_idx
             ].set(landmark_idx)
         elif self.assignment_strategy == AssignmentStrategy.MIN_MAX_FAIR.value:
-            costs = compute_distance(self.agent_indices, self.landmark_indices)
-
-            result_shape = (
-                jax.ShapeDtypeStruct((), jnp.int32),
-                jax.ShapeDtypeStruct((self.num_agents,), jnp.int32),
-                jax.ShapeDtypeStruct((self.num_landmarks,), jnp.int32),
-            )
-
-            # Use io_callback on TPU, pure_callback otherwise
-            jax_callback_fn = (
-                jax.experimental.io_callback
-                if jax.devices()[0].platform == "tpu"
-                else partial(jax.pure_callback, vmap_method="sequential")
-            )
-
-            worst_cost, agent_idx, landmark_idx = jax_callback_fn(
-                minmax_fair_assignment,
-                result_shape,
-                costs,
-            )
-
-            landmark_idx = landmark_idx + self.num_agents
             agent_indices_to_landmark_index = jnp.full(
                 (self.num_agents,), SENTINEL, dtype=jnp.int32
             )
-            agent_indices_to_landmark_index = agent_indices_to_landmark_index.at[
-                agent_idx
-            ].set(landmark_idx)
         else:
             raise Exception
 
-        checkify.debug_check(
-            (agent_indices_to_landmark_index != SENTINEL).all(),
-            "agent_indices_to_landmark_index is used before it is initialized {i}",
-            i=agent_indices_to_landmark_index,
-        )
+        if self.assignment_strategy != AssignmentStrategy.MIN_MAX_FAIR.value:
+            checkify.debug_check(
+                (agent_indices_to_landmark_index != SENTINEL).all(),
+                "agent_indices_to_landmark_index is used before it is initialized {i}",
+                i=agent_indices_to_landmark_index,
+            )
         dist_matrix = compute_distance(self.agent_indices, self.landmark_indices)
 
         # range is 0 to 1, higher value means this landmark is more covered by the agents
@@ -975,10 +952,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
         entity_occupancy = jnp.concatenate(
             [jnp.ones(self.num_agents), landmark_to_closest_agent_dist]
         )
-        return (
-            agent_indices_to_landmark_index,
-            entity_occupancy,
-        )
+        return (agent_indices_to_landmark_index, entity_occupancy, dist_matrix)
 
     def _step(
         self,
@@ -998,19 +972,20 @@ class CoverageMPEEnvironment(MultiAgentEnv):
         key, key_double_integrator = jax.random.split(key)
 
         if self.assignment_strategy != AssignmentStrategy.RANDOM.value:
-            agent_indices_to_landmark_index, entity_occupancy = self.get_assignment(
-                key, state
+            agent_indices_to_landmark_index, entity_occupancy, dist_matrix = (
+                self.get_assignment(key, state)
             )
         else:
             # Random assignment is made only once per episode in the reset function
-            _, entity_occupancy = self.get_assignment(key, state)
+            _, entity_occupancy, dist_matrix = self.get_assignment(key, state)
             agent_indices_to_landmark_index = state.agent_indices_to_landmark_index
 
-        checkify.debug_check(
-            (agent_indices_to_landmark_index != SENTINEL).all(),
-            "agent_indices_to_landmark_index is used before it is initialized {i}",
-            i=agent_indices_to_landmark_index,
-        )
+        if self.assignment_strategy != AssignmentStrategy.MIN_MAX_FAIR.value:
+            checkify.debug_check(
+                (agent_indices_to_landmark_index != SENTINEL).all(),
+                "agent_indices_to_landmark_index is used before it is initialized {i}",
+                i=agent_indices_to_landmark_index,
+            )
         checkify.debug_check(
             (entity_occupancy != SENTINEL).all(),
             "entity_occupancy is used before it is initialized {i}",
@@ -1073,6 +1048,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             is_agent_dead=is_agent_dead,
             agent_communication_message=state.agent_communication_message,
             agent_visibility_radius=state.agent_visibility_radius,
+            costs=dist_matrix,
         )
         reward = self.reward(state)
 

@@ -37,6 +37,9 @@ class MPEStateWithBuffer(NamedTuple):
     did_agent_die_last_time_step: Float[Array, f"{AgentIndexAxis}"]
     agent_communication_message: Float[Array, f"{AgentIndexAxis} ..."] | None
     agent_visibility_radius: Float[Array, f"{AgentIndexAxis}"]
+
+    costs: Float[Array, f"{AgentIndexAxis} {LandmarkIndexAxis}"]
+
     obs_buffer: MultiAgentObservation
     equivariant_nodes_buffer: MultiAgentObservation
     non_equivariant_nodes_buffer: MultiAgentObservation

@@ -23,6 +23,7 @@ from jaxtyping import Array, Float, jaxtyped
 import envs
 from config.config_format_conversion import config_to_dict
 from config.mappo_config import (
+    AssignmentStrategy,
     CommunicationType,
 )
 from config.mappo_config import (
@@ -38,6 +39,7 @@ from envs.core.schema import (
 from envs.coverage_mpe_env import GraphsTupleWithAgentIndex
 from envs.wrapper import LogEnvState, MPELogWrapper, MPEWorldStateWrapper
 from network.actor_critic_rnn import CriticRNN, GraphAttentionActorRNN, ScannedRNN
+from optimization.bottleneck_assignment_optimization import minmax_fair_assignment
 
 
 class Transition(NamedTuple):
@@ -490,6 +492,14 @@ def _env_step(
     )(
         *env_input,
     )
+    if (
+        config.env_config.env_kwargs.assignment_strategy
+        == AssignmentStrategy.MIN_MAX_FAIR.value
+    ):
+        # Update things that depend of the assignment
+        log_env_state, obs_v = update_env_state_for_minmax_fair_assignment(
+            env, log_env_state, obs_v, env.num_agents
+        )
 
     info = jax.tree.map(lambda x: x.reshape(config.derived_values.num_actors), info)
     done_batch = batchify(
@@ -988,6 +998,15 @@ def make_train(config: MAPPOConfig):
             ),
         )(reset_rng, initial_communication_message_env_input, initial_entity_position)
 
+        if (
+            config.env_config.env_kwargs.assignment_strategy
+            == AssignmentStrategy.MIN_MAX_FAIR.value
+        ):
+            # Update things that depend of the assignment
+            env_state, obs_v = update_env_state_for_minmax_fair_assignment(
+                env, env_state, obs_v, env.num_agents
+            )
+
         rng, _rng = jax.random.split(rng)
         actor_critic_train_states = ActorAndCriticTrainStates(
             actor_train_state, critic_train_state
@@ -1025,6 +1044,47 @@ def make_train(config: MAPPOConfig):
         return {"runner_state": runner_state, "metric": metric}
 
     return train
+
+
+def update_env_state_for_minmax_fair_assignment(env, env_state, obs_v, num_agents):
+    agent_indices_to_landmark_index = jax_pure_callback_for_minmax_fair_assignment(
+        env_state.env_state.costs, num_agents
+    )
+    __env_state = env_state.env_state._replace(
+        agent_indices_to_landmark_index=agent_indices_to_landmark_index
+    )
+    obs_v["full_state_observation"] = jax.vmap(
+        env._env._env.get_state_observation, in_axes=0
+    )(__env_state)
+    obs_v["world_state"] = jax.vmap(env._env.world_state)(obs_v)
+    env_state = env_state.replace(env_state=__env_state)
+    return env_state, obs_v
+
+
+def jax_pure_callback_for_minmax_fair_assignment(costs, num_agents):
+    num_envs = costs.shape[0]
+    result_shape = (jax.ShapeDtypeStruct((num_envs, num_agents), jnp.int32),)
+    return jax.pure_callback(
+        minmax_fair_assignment_parallel,
+        result_shape,
+        costs,
+        num_agents,
+        vmap_method="sequential",
+    )
+
+
+def minmax_fair_assignment_parallel(costs, num_agents):
+    agent_indices_to_landmark_index_all_envs = []
+    for i in range(costs.shape[0]):
+        worst_cost, agent_idx, landmark_idx = minmax_fair_assignment(costs[i])
+
+        landmark_idx = landmark_idx + num_agents
+        agent_indices_to_landmark_index = jnp.full((num_agents,), -1, dtype=jnp.int32)
+        agent_indices_to_landmark_index = agent_indices_to_landmark_index.at[
+            agent_idx
+        ].set(landmark_idx)
+        agent_indices_to_landmark_index_all_envs.append(agent_indices_to_landmark_index)
+    return jnp.stack(agent_indices_to_landmark_index_all_envs)
 
 
 def experiment_with_single_seed(seed: int, config: MAPPOConfig, timestamp: str):
