@@ -29,8 +29,8 @@ class MPEStateWithBuffer(NamedTuple):
     entity_velocities: Float[Array, f"{EntityIndexAxis} {CoordinateAxisIndexAxis}"]
 
     agent_indices_to_landmark_index: Int[Array, f"{AgentIndexAxis}"]
-    landmark_occupancy: Float[Array, f"{LandmarkIndexAxis}"]
-    closest_landmark_idx: Int[Array, f"{AgentIndexAxis}"]
+    entity_occupancy: Float[Array, f"{EntityIndexAxis}"]
+    closest_landmark_idx: Int[Array, f"{EntityIndexAxis}"]
     distance_travelled: Float[Array, f"{AgentIndexAxis}"]
 
     did_agent_die_this_time_step: Float[Array, f"{AgentIndexAxis}"]
