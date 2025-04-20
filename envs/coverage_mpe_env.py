@@ -144,6 +144,13 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             self.agent_entity_type = jnp.zeros(self.num_agents)
             self.landmark_entity_type = jnp.ones(self.num_landmarks)
 
+        self.full_state_observation_size = (
+            2 * self.num_entities
+            + 2 * self.num_entities
+            + self.num_entities
+            + self.num_agents
+        )
+
         # Assumption agent_i corresponds to landmark_i
         self.landmark_labels = [f"landmark_{i}" for i in range(self.num_landmarks)]
         self.landmark_labels_to_index = entity_labels_to_indices(
@@ -367,6 +374,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
         )
         graph = self.get_graph(state)
 
+        obs["full_state_observation"] = self.get_state_observation(state)
         return obs, graph, state
 
     # add two nearest landmarks to observation
@@ -821,6 +829,30 @@ class CoverageMPEEnvironment(MultiAgentEnv):
 
         return entity_positions, entity_velocities
 
+    def get_state_observation(self, state: MPEState):
+        agent_positions = state.entity_positions[self.agent_indices]
+        agent_velocities = state.entity_velocities[self.agent_indices]
+
+        # Information about assignment is being communicated to the crictic by the following steps.
+        corresponding_landmark_positions = state.entity_positions[
+            state.agent_indices_to_landmark_index
+        ]
+        corresponding_landmark_velocities = state.entity_velocities[
+            state.agent_indices_to_landmark_index
+        ]
+
+        return jnp.concatenate(
+            [
+                agent_positions.flatten(),
+                corresponding_landmark_positions.flatten(),
+                agent_velocities.flatten(),
+                corresponding_landmark_velocities.flatten(),
+                state.entity_occupancy,
+                state.distance_travelled,
+            ],
+            axis=-1,
+        )
+
     def get_assignment(self, key: PRNGKey, state: MPEState) -> tuple[
         Int[Array, f"{AgentIndexAxis}"],
         Float[Array, f"{EntityIndexAxis}"],
@@ -1010,6 +1042,8 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             agent_label: dones[i] for i, agent_label in enumerate(self.agent_labels)
         }
         dones_with_agent_label.update({"__all__": jnp.all(dones)})
+        observation["full_state_observation"] = self.get_state_observation(state)
+
         return (
             observation,
             graph,

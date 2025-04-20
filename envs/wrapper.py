@@ -61,11 +61,12 @@ class MARLWrapper(MultiAgentEnv):
         return jnp.stack([x[a] for a in self._env.agent_labels])
 
     def world_state_size(self):
-        spaces = [
-            self._env.observation_space_for_agent(agent)
-            for agent in self._env.agent_labels
-        ]
-        return sum([space.shape[-1] for space in spaces])
+        # spaces = [
+        #     self._env.observation_space_for_agent(agent)
+        #     for agent in self._env.agent_labels
+        # ]
+        # return sum([space.shape[-1] for space in spaces])
+        return self._env._env.full_state_observation_size
 
     def get_graph(self, state: MultiAgentState) -> MultiAgentGraph:
         return self._env.get_graph(state)
@@ -124,7 +125,14 @@ class MPEWorldStateWrapper(MARLWrapper):
             robs = robs.flatten()
             return robs
 
-        all_obs = jnp.array([obs[agent] for agent in self._env.agent_labels]).flatten()
+        # all_obs = jnp.array([obs[agent] for agent in self._env.agent_labels]).flatten()
+        all_obs = jnp.concatenate(
+            [
+                obs["full_state_observation"],
+                # all_obs,
+            ],
+            axis=-1,
+        ).flatten()
         all_obs = jnp.expand_dims(all_obs, axis=0).repeat(self._env.num_agents, axis=0)
         return all_obs
 
