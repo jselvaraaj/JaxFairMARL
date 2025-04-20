@@ -9,7 +9,7 @@ from scipy.optimize import linear_sum_assignment
 
 from config.mappo_config import AssignmentStrategy, CommunicationType
 from optimization.bottleneck_assignment_optimization import (
-    lexicographic_bottleneck_assignment,
+    minmax_fair_assignment,
 )
 
 from .core.default_env_config import (
@@ -918,14 +918,27 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             agent_indices_to_landmark_index = agent_indices_to_landmark_index.at[
                 agent_idx
             ].set(landmark_idx)
-            checkify.debug_check(
-                (agent_indices_to_landmark_index != SENTINEL).all(),
-                "agent_indices_to_landmark_index is used before it is initialized {i}",
-                i=agent_indices_to_landmark_index,
-            )
         elif self.assignment_strategy == AssignmentStrategy.MIN_MAX_FAIR.value:
             costs = compute_distance(self.agent_indices, self.landmark_indices)
-            agent_idx, landmark_idx = lexicographic_bottleneck_assignment(costs)
+
+            result_shape = (
+                jax.ShapeDtypeStruct((), jnp.int32),
+                jax.ShapeDtypeStruct((self.num_agents,), jnp.int32),
+                jax.ShapeDtypeStruct((self.num_landmarks,), jnp.int32),
+            )
+
+            # Use io_callback on TPU, pure_callback otherwise
+            jax_callback_fn = (
+                jax.experimental.io_callback
+                if jax.devices()[0].platform == "tpu"
+                else partial(jax.pure_callback, vmap_method="sequential")
+            )
+
+            worst_cost, agent_idx, landmark_idx = jax_callback_fn(
+                minmax_fair_assignment,
+                result_shape,
+                costs,
+            )
 
             landmark_idx = landmark_idx + self.num_agents
             agent_indices_to_landmark_index = jnp.full(
@@ -936,6 +949,12 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             ].set(landmark_idx)
         else:
             raise Exception
+
+        checkify.debug_check(
+            (agent_indices_to_landmark_index != SENTINEL).all(),
+            "agent_indices_to_landmark_index is used before it is initialized {i}",
+            i=agent_indices_to_landmark_index,
+        )
         dist_matrix = compute_distance(self.agent_indices, self.landmark_indices)
 
         # range is 0 to 1, higher value means this landmark is more covered by the agents

@@ -41,7 +41,7 @@ class EnvKwArgs(NamedTuple):
     agent_communication_type: CommunicationType.value = None
 
     assignment_strategy: AssignmentStrategy.value = (
-        AssignmentStrategy.OPTIMAL_DISTANCE.value
+        AssignmentStrategy.MIN_MAX_FAIR.value
     )
 
     agent_control_noise_std: float = 0.0

@@ -1,98 +1,144 @@
-import jax
 import jax.numpy as jnp
-import optax
-from jaxtyping import Array, Float, Int
+from jaxtyping import Array, Float
+from ortools.sat.python import cp_model
 
-n_axis = "n"
-m_axis = "m"
+# ------------------------------------------------------------
+#  Min‑max fair bipartite assignment via Google OR‑Tools CP‑SAT
+# ------------------------------------------------------------
+#
+#  Problem statement
+#  -----------------
+#  We have m agents and n (≥ m) landmarks with cost matrix C.
+#  Each agent must receive exactly one landmark and each landmark may
+#  be used at most once.  The objective is *not* to minimise
+#  the total cost (Hungarian) but the maximum individual cost
+#  across all assignments:
+#
+#          minimise     z   =  max_{i}  C[i, π(i)]
+#
+#  This “bottleneck” criterion is the standard definition of
+#  min‑max (a.k.a. egalitarian) fairness for one‑to‑one matching.
+#
+#  Key modelling idea
+#  ------------------
+#  Introduce a single IntVar z and force      z ≥ C_ij * x_ij
+#  for every edge (i,j).  CP‑SAT offers      AddMaxEquality
+#  which encodes *all* those inequalities and z == max()   in
+#  **one** constraint, eliminating an O(m n) loop.
+#
+# ------------------------------------------------------------
 
 
-def solve_bottleneck_assignment(
-    cost_matrix: Float[Array, f"{m_axis} {n_axis}"]
-) -> tuple[Int[Array, f"{m_axis}"], Int[Array, f"{n_axis}"]]:
-    max_search_values = jnp.sort(cost_matrix.flatten())
+def minmax_fair_assignment(_cost: Float[Array, "m n"]):
+    """
+    Solve the min‑max fair assignment problem.
 
-    low = 0
-    high = max_search_values.shape[0] - 1
-    # Initialize best_assignment with the same shape as what will be returned
-    m, n = cost_matrix.shape
-    init_rows = jnp.full((m,), jnp.nan, dtype=jnp.float32)
-    init_cols = jnp.full((n,), jnp.nan, dtype=jnp.float32)
-    best_assignment = (init_rows, init_cols)
+    Parameters
+    ----------
+    cost : Float[Array, "m n"]
+        Rectangular cost matrix cost[i][j] (len = m × n, with n >= m).
 
-    def cond_fn(state):
-        low, high, _ = state
-        return low <= high
+    Returns
+    -------
+    (int, Array[int, "m"], Array[int, "m"])
+        Tuple (max_cost, agent_idx, landmark_idx) where
+            max_cost  -- the minimised value of the worst individual cost
+            For a given pairing i, the agent_idx[i] is the index of the agent
+            chosen for landmark_idx[i].
+    """
+    int_cost = scale_float_cost_matrix_to_int_cost_matrix(_cost)
+    m, n = int_cost.shape
+    model = cp_model.CpModel()
 
-    # Binary search for the maximum cost assignment. Implicitly, minimized by the binary search condition to decrease the search value if a feasible assignment is found.
-    # This is essentially a min max for the linear assignment problem.
-    def body_fn(state):
-        low, high, best = state
-        mid = (low + high) // 2
-        mid_value = max_search_values[mid]
-        feasible_edges = (cost_matrix <= mid_value).astype(jnp.float32)
-        rows, cols = optax.assignment.hungarian_algorithm(-feasible_edges)
-        is_feasible = jnp.all(feasible_edges[rows, cols])
+    # --------------------------------------------------------
+    # 1) Decision variables
+    # --------------------------------------------------------
+    # We create *all* Boolean x_{i,j} in a **single dictionary
+    # comprehension** (one loop only):
+    #     x[(i,j)] == 1  ↔  worker i is assigned task j.
+    x = {(i, j): model.NewBoolVar(f"x_{i}_{j}") for i in range(m) for j in range(n)}
 
-        new_low = jnp.where(is_feasible, low, mid + 1)
-        new_high = jnp.where(is_feasible, mid - 1, high)
-        new_best = jax.lax.cond(
-            is_feasible,
-            lambda: (rows.astype(jnp.float32), cols.astype(jnp.float32)),
-            lambda: best,
-        )
-        return (new_low, new_high, new_best)
+    # Upper bound for z is the largest matrix entry — cheap to compute.
+    z = model.NewIntVar(0, jnp.max(int_cost), "z")
 
-    _, _, best_assignment = jax.lax.while_loop(
-        cond_fn, body_fn, (low, high, best_assignment)
+    # --------------------------------------------------------
+    # 2) Classical assignment constraints
+    # --------------------------------------------------------
+    # Each worker takes exactly one task (|π(i)| = 1).
+    for i in range(m):  # *single* loop
+        model.Add(sum(x[i, j] for j in range(n)) == 1)
+
+    # Each task is used by at most one worker (injective π).
+    for j in range(n):  # *single* loop
+        model.Add(sum(x[i, j] for i in range(m)) <= 1)
+
+    # --------------------------------------------------------
+    # 3) Fairness link  ——  one‑liner thanks to AddMaxEquality
+    # --------------------------------------------------------
+    # The list comprehension builds      cost_ij * x_ij   for every edge.
+    # Because x_ij is Boolean, this is still a *linear* term and therefore
+    # legal in CP‑SAT.  AddMaxEquality enforces           z == max(list).
+    model.AddMaxEquality(
+        z, [int_cost[i][j] * x[i, j] for i in range(m) for j in range(n)]
     )
-    return jax.tree.map(lambda x: x.astype(jnp.int32), best_assignment)
+
+    # --------------------------------------------------------
+    # 4) Objective
+    # --------------------------------------------------------
+    model.Minimize(z)
+
+    # --------------------------------------------------------
+    # 5) Solve
+    # --------------------------------------------------------
+    solver = cp_model.CpSolver()
+    solver.parameters.max_time_in_seconds = 30  # safeguard: cut after 30 s
+    status = solver.Solve(model)
+
+    if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        raise RuntimeError("No feasible assignment found")
+
+    # Extract π(i) by scanning each worker’s row for x_{i,j} == 1.
+    agent_idx = []
+    landmark_idx = []
+    for i in range(m):
+        for j in range(n):
+            if solver.Value(x[i, j]):
+                agent_idx.append(i)
+                landmark_idx.append(j)
+                break
+
+    return solver.Value(z), jnp.asarray(agent_idx), jnp.asarray(landmark_idx)
 
 
-def lexicographic_bottleneck_assignment(
-    cost_matrix: Float[Array, f"{m_axis} {n_axis}"]
-) -> tuple[Int[Array, f"{m_axis}"], Int[Array, f"{n_axis}"]]:
-    # Get shape information
-    m_size = cost_matrix.shape[0]
+def scale_float_cost_matrix_to_int_cost_matrix(
+    cost: Float[Array, "m n"],
+    max_decimals=2,
+):
+    """
+    Converts an m×n float matrix to the smallest‑possible integer matrix
+    by finding a common denominator.
 
-    # Initialize arrays to store results
-    row_indices = jnp.full((m_size,), jnp.nan, dtype=jnp.float32)
-    col_indices = jnp.full((m_size,), jnp.nan, dtype=jnp.float32)
+    Returns
+    -------
+    scaled_cost : Float[Array, "m n"]
+    """
+    factor = 10**max_decimals
+    int_cost = jnp.rint(cost * factor).astype(jnp.int32)
+    return int_cost
 
-    cost_matrix = cost_matrix.astype(jnp.float32)
 
-    # Define the scan function
-    def scan_fn(carry, idx):
-        matrix, rows, cols = carry
-
-        # Find bottleneck assignment
-        row_idx, col_idx = solve_bottleneck_assignment(matrix)
-        assignment_cost = jnp.max(matrix[row_idx, col_idx])
-
-        # Update matrix with threshold
-        matrix = jnp.where(matrix <= assignment_cost, matrix, jnp.inf)
-
-        # Find max cost assignment index
-        i = jnp.argmax(matrix[row_idx, col_idx])
-        r = row_idx[i]
-        c = col_idx[i]
-
-        # Update rows and cols arrays
-        rows = rows.at[idx].set(r)
-        cols = cols.at[idx].set(c)
-
-        # Set the assignment cost to 0 to indicate that the assignment has been made. Choosing any another assignemnt than this will result in inf cost.
-        matrix = matrix.at[r].set(jnp.inf)
-        matrix = matrix.at[:, c].set(jnp.inf)
-        matrix = matrix.at[r, c].set(0)
-
-        return (matrix, rows, cols), None
-
-    # Run the scan
-    (_, row_indices, col_indices), _ = jax.lax.scan(
-        scan_fn, (cost_matrix, row_indices, col_indices), jnp.arange(m_size)
+if __name__ == "__main__":
+    C = jnp.asarray(
+        [
+            [90, 76, 75, 70, 50, 74],
+            [35, 85, 55, 65, 48, 101],
+            [125, 95, 90, 105, 59, 120],
+            [45, 110, 95, 115, 104, 83],
+            [60, 105, 80, 75, 59, 62],
+        ]
     )
-    row_indices = row_indices.astype(jnp.int32)
-    col_indices = col_indices.astype(jnp.int32)
 
-    return row_indices, col_indices
+    worst, agent_idx, landmark_idx = minmax_fair_assignment(C)
+    print("Optimal worst‑case cost:", worst)
+    for i, j in enumerate(agent_idx):
+        print(f"agent {i} → landmark {j}   (cost = {C[i][j]})")
