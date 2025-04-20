@@ -943,7 +943,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
         # death masking
         is_there_overlap_between_agent_and_landmark = jax.vmap(
             self.is_there_overlap, in_axes=(0, 0, None)
-        )(self.agent_indices, self.landmark_indices, state)
+        )(self.agent_indices, state.agent_indices_to_landmark_index, state)
 
         entity_positions, entity_velocities = self._double_integrator_dynamics(
             key_double_integrator,
@@ -961,7 +961,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
 
         agent_positions = jnp.where(
             did_agent_die_this_time_step[..., None],
-            entity_positions[self.landmark_indices],
+            entity_positions[state.agent_indices_to_landmark_index],
             entity_positions[: self.num_agents],
         )
 
@@ -1038,10 +1038,10 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             agent_index: Int[Array, AgentIndexAxis], state: MPEState
         ) -> Float[Array, AgentIndexAxis]:
             # reward is the negative distance from agent to landmark
-            # corresponding_landmark_index = state.agent_indices_to_landmark_index[
-            #     agent_index
-            # ]
-            corresponding_landmark_index = self.num_agents + agent_index
+            corresponding_landmark_index = state.agent_indices_to_landmark_index[
+                agent_index
+            ]
+            # corresponding_landmark_index = self.num_agents + agent_index
 
             return -jnp.sum(
                 jnp.square(
