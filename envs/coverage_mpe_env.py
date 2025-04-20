@@ -3,9 +3,9 @@ from typing import NamedTuple
 
 import jax
 import jax.numpy as jnp
-import optax
 from jax.experimental import checkify
 from jaxtyping import Array, Bool, Float, Int
+from scipy.optimize import linear_sum_assignment
 
 from config.mappo_config import AssignmentStrategy, CommunicationType
 from optimization.bottleneck_assignment_optimization import (
@@ -877,7 +877,22 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             )
         elif self.assignment_strategy == AssignmentStrategy.OPTIMAL_DISTANCE.value:
             costs = compute_distance(self.agent_indices, self.landmark_indices)
-            agent_idx, landmark_idx = optax.assignment.hungarian_algorithm(costs)
+
+            def linear_sum_assignment_pure_callback(costs):
+                agent_idx, landmark_idx = linear_sum_assignment(costs)
+                return jnp.asarray(agent_idx), jnp.asarray(landmark_idx)
+
+            result_shape = (
+                jax.ShapeDtypeStruct((self.num_agents,), jnp.int32),
+                jax.ShapeDtypeStruct((self.num_landmarks,), jnp.int32),
+            )
+
+            agent_idx, landmark_idx = jax.pure_callback(
+                linear_sum_assignment_pure_callback,
+                result_shape,
+                costs,
+                vmap_method="sequential",
+            )
 
             checkify.debug_check(
                 jnp.all(agent_idx >= 0) & jnp.all(agent_idx < self.num_agents),
@@ -897,6 +912,11 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             agent_indices_to_landmark_index = agent_indices_to_landmark_index.at[
                 agent_idx
             ].set(landmark_idx)
+            checkify.debug_check(
+                (agent_indices_to_landmark_index != SENTINEL).all(),
+                "agent_indices_to_landmark_index is used before it is initialized {i}",
+                i=agent_indices_to_landmark_index,
+            )
         elif self.assignment_strategy == AssignmentStrategy.MIN_MAX_FAIR.value:
             costs = compute_distance(self.agent_indices, self.landmark_indices)
             agent_idx, landmark_idx = lexicographic_bottleneck_assignment(costs)
