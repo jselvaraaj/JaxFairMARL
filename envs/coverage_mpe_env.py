@@ -3,9 +3,9 @@ from typing import NamedTuple
 
 import jax
 import jax.numpy as jnp
+import optax
 from jax.experimental import checkify
 from jaxtyping import Array, Bool, Float, Int
-from scipy.optimize import linear_sum_assignment
 
 from config.mappo_config import AssignmentStrategy, CommunicationType
 
@@ -879,27 +879,29 @@ class CoverageMPEEnvironment(MultiAgentEnv):
         elif self.assignment_strategy == AssignmentStrategy.OPTIMAL_DISTANCE.value:
             costs = compute_distance(self.agent_indices, self.landmark_indices)
 
-            def linear_sum_assignment_pure_callback(costs):
-                agent_idx, landmark_idx = linear_sum_assignment(costs)
-                return jnp.asarray(agent_idx), jnp.asarray(landmark_idx)
+            # def linear_sum_assignment_pure_callback(costs):
+            #     agent_idx, landmark_idx = linear_sum_assignment(costs)
+            #     return jnp.asarray(agent_idx), jnp.asarray(landmark_idx)
 
-            result_shape = (
-                jax.ShapeDtypeStruct((self.num_agents,), jnp.int32),
-                jax.ShapeDtypeStruct((self.num_landmarks,), jnp.int32),
-            )
+            # result_shape = (
+            #     jax.ShapeDtypeStruct((self.num_agents,), jnp.int32),
+            #     jax.ShapeDtypeStruct((self.num_landmarks,), jnp.int32),
+            # )
 
-            # Use io_callback on TPU, pure_callback otherwise
-            jax_callback_fn = (
-                jax.experimental.io_callback
-                if jax.devices()[0].platform == "tpu"
-                else partial(jax.pure_callback, vmap_method="sequential")
-            )
+            # # Use io_callback on TPU, pure_callback otherwise
+            # jax_callback_fn = (
+            #     jax.experimental.io_callback
+            #     if jax.devices()[0].platform == "tpu"
+            #     else partial(jax.pure_callback, vmap_method="sequential")
+            # )
 
-            agent_idx, landmark_idx = jax_callback_fn(
-                linear_sum_assignment_pure_callback,
-                result_shape,
-                costs,
-            )
+            # agent_idx, landmark_idx = jax_callback_fn(
+            #     linear_sum_assignment_pure_callback,
+            #     result_shape,
+            #     costs,
+            # )
+
+            agent_idx, landmark_idx = optax.assignment.hungarian_algorithm(costs)
 
             checkify.debug_check(
                 jnp.all(agent_idx >= 0) & jnp.all(agent_idx < self.num_agents),
