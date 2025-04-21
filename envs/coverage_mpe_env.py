@@ -551,7 +551,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
                 i=goal_idx,
             )
 
-            # entity_occupancy = state.entity_occupancy[goal_idx][None]
+            entity_occupancy = state.entity_occupancy[goal_idx][None]
 
             goal_relative_coord = jnp.asarray([])
             if self.add_target_goal_to_nodes:
@@ -596,7 +596,7 @@ class CoverageMPEEnvironment(MultiAgentEnv):
             non_equivariant_node_features = jnp.concatenate(
                 [
                     node_communication_message,
-                    # entity_occupancy,
+                    entity_occupancy,
                     jnp.asarray([entity_type]),
                 ]
             )
